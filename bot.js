@@ -543,28 +543,6 @@ bot.action(/^pay_(bronze|silver|gold|diamond)_(.+)$/, async (ctx) => {
 // 🌐 SERVIDOR WEBHOOK E GRACEFUL SHUTDOWN (DESLIGAMENTO SEGURO)
 // ==========================================
 const app = express();
-app.use(express.json()); 
-app.post('/webhook', handleWebhook);
-
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-    console.log(`🌐 [SISTEMA] Servidor Webhook rodando e escutando na porta ${PORT}!`);
-});
-
-// Desligamento Seguro: essencial para hospedagens na núvem (Render, AWS, Heroku)
-// Evita corrupção no banco de dados quando a máquina reiniciar automaticamente.
-process.once('SIGINT', () => {
-    console.log('🛑 [SISTEMA] Sinal de interrupção recebido. Desligando bot de forma segura...');
-    bot.stop('SIGINT');
-    server.close();
-});
-process.once('SIGTERM', () => {
-    console.log('🛑 [SISTEMA] Sinal de finalização recebido. Desligando bot de forma segura...');
-
-// ==========================================
-// 🌐 SERVIDOR WEBHOOK E GRACEFUL SHUTDOWN (DESLIGAMENTO SEGURO)
-// ==========================================
-const app = express();
 
 // Permite que o bot entenda a mensagem que o Mercado Pago vai enviar
 app.use(express.json()); 
