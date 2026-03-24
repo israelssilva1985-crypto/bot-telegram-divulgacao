@@ -560,6 +560,27 @@ process.once('SIGINT', () => {
 });
 process.once('SIGTERM', () => {
     console.log('🛑 [SISTEMA] Sinal de finalização recebido. Desligando bot de forma segura...');
+
+    // SERVIDOR PARA RECEBER AVISOS DE PAGAMENTO (WEBHOOK)
+// ==========================================
+const app = express();
+
+// Permite que o bot entenda a mensagem que o Mercado Pago vai enviar
+app.use(express.json()); 
+
+// 👉 ADICIONE ESTA LINHA AQUI:
+app.get('/', (req, res) => res.send('Bot está online e respirando! 🤖'));
+
+// Essa é a rota (o link) que o Mercado Pago vai chamar
+app.post('/webhook', handleWebhook);
+
+// O Render exige que a porta seja definida assim:
+const PORT = process.env.PORT || 3000;
+
+// Liga o servidor
+app.listen(PORT, () => {
+    console.log(`🌐 Servidor Webhook escutando na porta ${PORT}!`);
+});
     bot.stop('SIGTERM');
     server.close();
 });
