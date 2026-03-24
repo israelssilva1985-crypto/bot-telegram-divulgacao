@@ -561,26 +561,34 @@ process.once('SIGINT', () => {
 process.once('SIGTERM', () => {
     console.log('🛑 [SISTEMA] Sinal de finalização recebido. Desligando bot de forma segura...');
 
-    // SERVIDOR PARA RECEBER AVISOS DE PAGAMENTO (WEBHOOK)
+// ==========================================
+// 🌐 SERVIDOR WEBHOOK E GRACEFUL SHUTDOWN (DESLIGAMENTO SEGURO)
 // ==========================================
 const app = express();
 
 // Permite que o bot entenda a mensagem que o Mercado Pago vai enviar
 app.use(express.json()); 
 
-// 👉 ADICIONE ESTA LINHA AQUI:
+// Resposta para o UptimeRobot não achar que o bot caiu (Fica Verde)
 app.get('/', (req, res) => res.send('Bot está online e respirando! 🤖'));
 
 // Essa é a rota (o link) que o Mercado Pago vai chamar
 app.post('/webhook', handleWebhook);
 
-// O Render exige que a porta seja definida assim:
 const PORT = process.env.PORT || 3000;
-
-// Liga o servidor
-app.listen(PORT, () => {
-    console.log(`🌐 Servidor Webhook escutando na porta ${PORT}!`);
+const server = app.listen(PORT, () => {
+    console.log(`🌐 [SISTEMA] Servidor Webhook rodando e escutando na porta ${PORT}!`);
 });
+
+// Desligamento Seguro: Evita corrupção no banco de dados
+process.once('SIGINT', () => {
+    console.log('🛑 [SISTEMA] Sinal de interrupção recebido. Desligando bot...');
+    bot.stop('SIGINT');
+    server.close();
+});
+
+process.once('SIGTERM', () => {
+    console.log('🛑 [SISTEMA] Sinal de finalização recebido. Desligando bot...');
     bot.stop('SIGTERM');
     server.close();
 });
