@@ -1,0 +1,22 @@
+{
+  "name": "meu-bot-telegram",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+  "start": "node index.js"
+  "test": "echo \"Error: no test specified\" && exit 1"
+},
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.99.1",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "mercadopago": "^2.12.0",
+    "node-cron": "^4.2.1",
+    "telegraf": "^4.16.3"
+  }
+}
