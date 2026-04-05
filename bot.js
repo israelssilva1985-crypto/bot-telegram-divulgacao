@@ -378,14 +378,27 @@ cron.schedule('0 */4 * * *', async () => {
         let blocoFree = freeLinks.slice(fIndex, fIndex + slotsForFree);
         fIndex += slotsForFree;
 
-        if (blocoVips.length + blocoFree.length < 20 && vIndex < vipLinks.length) {
+if (blocoVips.length + blocoFree.length < 20 && vIndex < vipLinks.length) {
              let missing = 20 - (blocoVips.length + blocoFree.length);
              let extraVips = vipLinks.slice(vIndex, vIndex + missing);
              vIndex += missing;
              blocoVips = blocoVips.concat(extraVips);
         }
 
-        const bloco = [...blocoVips, ...blocoFree];
+        let bloco = [...blocoVips, ...blocoFree];
+        
+        // 🚀 A MÁGICA: Preencher se faltar para dar 20 cravado!
+        if (bloco.length > 0 && bloco.length < 20 && alvosOrdenados.length >= 20) {
+             let missingCount = 20 - bloco.length;
+             // Busca grupos extras que ainda NÃO estão neste bloco (para evitar duplicatas)
+             let gruposExtras = alvosOrdenados
+                 .filter(g => !bloco.some(b => b.id === g.id))
+                 .sort(() => Math.random() - 0.5) // Pega aleatoriamente para misturar
+                 .slice(0, missingCount);
+             
+             bloco = [...bloco, ...gruposExtras];
+        }
+
         if (bloco.length > 0) blocos.push(bloco);
     }
 
