@@ -480,15 +480,28 @@ bot.on('new_chat_members', async (ctx) => {
         if (ctx.message.new_chat_members.some(m => m.id === ctx.botInfo.id)) {
             await ctx.replyWithHTML("🚀 <b>Olá!</b>\n\nPreciso que me promova a <b>Administrador</b> com permissão de <b>Fixar Mensagens e Convidar Usuários</b> para funcionar!").catch(() => {});
             
-            // CORREÇÃO: Não gera link quebrado. Se não tiver username, deixa como 'AGUARDANDO_ADMIN'
             const linkInicial = ctx.chat.username ? `https://t.me/${ctx.chat.username}` : 'AGUARDANDO_ADMIN';
 
             const { error } = await supabase.from('groups').upsert({
-                telegram_chat_id: ctx.chat.id.toString(), name: ctx.chat.title, link: linkInicial, status: 'pending',
+                telegram_chat_id: ctx.chat.id.toString(), 
+                name: ctx.chat.title, 
+                link: linkInicial, 
+                status: 'pending',
+                user_id: ctx.from.id.toString() // 🔥 O ID do usuário agora é salvo aqui!
             });
             
             if (!error) {
-                await ctx.telegram.sendMessage(ctx.from.id, `✅ O grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`, { parse_mode: 'HTML' }).catch(() => null);
+                // O bot vai TENTAR mandar no privado da pessoa primeiro
+try {
+    await ctx.telegram.sendMessage(
+        ctx.from.id, 
+        `✅ O grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`, 
+        { parse_mode: 'HTML' }
+    );
+} catch (erro) {
+    // SE DER ERRO (ex: ela nunca deu /start no bot), ele desiste do PV e manda no Grupo
+    await ctx.replyWithHTML(`✅ <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a>, o grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`).catch(() => null);
+}
             }
         }
     } catch (e) { console.error("❌ [ERRO] Falha geral ao detetar novo membro:", e); }
