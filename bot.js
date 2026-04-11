@@ -88,37 +88,53 @@ cron.schedule('0 0 * * *', async () => {
 });
 
 // ==========================================
-// 👥 ATUALIZADOR DE CONTAGEM DE MEMBROS (A cada 12h)
+// 👥 ATUALIZADOR DE MEMBROS E LINKS (A cada 12h)
 // ==========================================
 async function atualizarContagemMembros() {
-    console.log('👥 [SISTEMA] Iniciando atualização da contagem de membros dos grupos...');
+    console.log('👥 [SISTEMA] Iniciando atualização da contagem de membros e links dos grupos...');
 
-    try {
-        const { data: grupos, error } = await supabase.from('groups').select('id, telegram_chat_id, name').eq('status', 'approved');
+    try {
+        const { data: grupos, error } = await supabase.from('groups').select('id, telegram_chat_id, name').eq('status', 'approved');
 
-        if (error || !grupos) {
-            console.error('❌ [ERRO] Falha ao buscar grupos para atualizar membros:', error?.message);
-            return;
-        }
+        if (error || !grupos) {
+            console.error('❌ [ERRO] Falha ao buscar grupos para atualizar:', error?.message);
+            return;
+        }
 
-        let atualizados = 0;
+        let atualizados = 0;
 
-        for (const grupo of grupos) {
-            try {
-                const membros = await bot.telegram.getChatMembersCount(grupo.telegram_chat_id);
-                await supabase.from('groups').update({ member_count: membros }).eq('id', grupo.id);
-                atualizados++;
-            } catch (err) {
-                console.log(`⚠️ [AVISO] Não foi possível ler membros de: ${grupo.name} (Bot pode ter sido expulso)`);
-            }
-            await sleep(150); 
-        }
+        for (const grupo of grupos) {
+            try {
+                // Puxa as infos reais do grupo no Telegram neste exato momento
+                const chatInfo = await bot.telegram.getChat(grupo.telegram_chat_id);
+                const membros = await bot.telegram.getChatMembersCount(grupo.telegram_chat_id);
+                
+                let linkAtualizado = '';
+                if (chatInfo.username) {
+                    // Se o grupo é público, o link é o @username
+                    linkAtualizado = `https://t.me/${chatInfo.username}`;
+                } else {
+                    // Se o grupo é privado, o bot EXPORTA um link novo/atualizado
+                    linkAtualizado = await bot.telegram.exportChatInviteLink(grupo.telegram_chat_id);
+                }
 
-        console.log(`✅ [SUCESSO] Atualização de membros concluída! ${atualizados} grupos atualizados.`);
+                await supabase.from('groups').update({ 
+                    member_count: membros,
+                    link: linkAtualizado 
+                }).eq('id', grupo.id);
+                
+                atualizados++;
+            } catch (err) {
+                console.log(`⚠️ [AVISO] Não foi possível ler dados de: ${grupo.name} (Bot sem permissão de convite ou expulso)`);
+            }
+            await sleep(300); // Um delay de segurança um pouco maior para poupar a API do Telegram
+        }
 
-    } catch (err) {
-        console.error('❌ [ERRO] Erro inesperado ao atualizar membros:', err);
-    }
+        console.log(`✅ [SUCESSO] Atualização concluída! ${atualizados} grupos tiveram links e membros renovados.`);
+
+    } catch (err) {
+        console.error('❌ [ERRO] Erro inesperado ao atualizar membros:', err);
+    }
 }
 
 atualizarContagemMembros();
@@ -411,7 +427,10 @@ if (blocoVips.length + blocoFree.length < 20 && vIndex < vipLinks.length) {
         let blocoAtual = [...blocos[i % blocos.length]]; 
         blocoAtual.sort((a, b) => getPeso(b) - getPeso(a) || Math.random() - 0.5);
         
-        let tecladoBotoes = blocoAtual.map(grupo => [{ text: `${getEmoji(getPeso(grupo))} ${grupo.name}`, url: grupo.link }]);
+        let tecladoBotoes = blocoAtual.map(grupo => {
+    const urlSegura = (grupo.link && grupo.link.startsWith('http')) ? grupo.link : 'https://grupolink.site/';
+    return [{ text: `${getEmoji(getPeso(grupo))} ${grupo.name}`, url: urlSegura }];
+});
         tecladoBotoes.push([
             { text: '✅ Adicionar', url: `https://t.me/${botUsername}?startgroup=true` },
             { text: '🌐 Lista Completa', url: 'https://grupolink.site/grupos-do-bot' }
@@ -457,17 +476,22 @@ supabase.channel('mudancas-de-status')
     }).subscribe();
 
 bot.on('new_chat_members', async (ctx) => {
-    try {
-        if (ctx.message.new_chat_members.some(m => m.id === ctx.botInfo.id)) {
-            await ctx.replyWithHTML("🚀 <b>Olá!</b>\n\nPreciso que me promova a <b>Administrador</b> com permissão de <b>Fixar Mensagens</b> para funcionar!").catch(() => {});
-            const { error } = await supabase.from('groups').upsert({
-                telegram_chat_id: ctx.chat.id.toString(), name: ctx.chat.title, link: ctx.chat.invite_link || `https://t.me/${ctx.chat.username || ''}`, status: 'pending',
-            });
-            if (!error) {
-                await ctx.telegram.sendMessage(ctx.from.id, `✅ O grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`, { parse_mode: 'HTML' }).catch(() => null);
-            }
-        }
-    } catch (e) { console.error("❌ [ERRO] Falha geral ao detetar novo membro:", e); }
+    try {
+        if (ctx.message.new_chat_members.some(m => m.id === ctx.botInfo.id)) {
+            await ctx.replyWithHTML("🚀 <b>Olá!</b>\n\nPreciso que me promova a <b>Administrador</b> com permissão de <b>Fixar Mensagens e Convidar Usuários</b> para funcionar!").catch(() => {});
+            
+            // CORREÇÃO: Não gera link quebrado. Se não tiver username, deixa como 'AGUARDANDO_ADMIN'
+            const linkInicial = ctx.chat.username ? `https://t.me/${ctx.chat.username}` : 'AGUARDANDO_ADMIN';
+
+            const { error } = await supabase.from('groups').upsert({
+                telegram_chat_id: ctx.chat.id.toString(), name: ctx.chat.title, link: linkInicial, status: 'pending',
+            });
+            
+            if (!error) {
+                await ctx.telegram.sendMessage(ctx.from.id, `✅ O grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`, { parse_mode: 'HTML' }).catch(() => null);
+            }
+        }
+    } catch (e) { console.error("❌ [ERRO] Falha geral ao detetar novo membro:", e); }
 });
 
 // ==========================================
