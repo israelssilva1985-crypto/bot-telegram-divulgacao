@@ -110,13 +110,16 @@ async function atualizarContagemMembros() {
                 const membros = await bot.telegram.getChatMembersCount(grupo.telegram_chat_id);
                 
                 let linkAtualizado = '';
-                if (chatInfo.username) {
-                    // Se o grupo é público, o link é o @username
-                    linkAtualizado = `https://t.me/${chatInfo.username}`;
-                } else {
-                    // Se o grupo é privado, o bot EXPORTA um link novo/atualizado
-                    linkAtualizado = await bot.telegram.exportChatInviteLink(grupo.telegram_chat_id);
-                }
+                if (chatInfo.username) {
+                    // Se o grupo é público, o link é o @username
+                    linkAtualizado = `https://t.me/${chatInfo.username}`;
+                } else if (chatInfo.invite_link) {
+                    // JEITO SEGURO: Se for privado e o Telegram já tiver um link ativo devolvido, usa ele sem revogar!
+                    linkAtualizado = chatInfo.invite_link;
+                } else {
+                    // ÚLTIMO CASO: Só cria um link novo (e revoga o antigo) se realmente não existir nenhum link disponível
+                    linkAtualizado = await bot.telegram.exportChatInviteLink(grupo.telegram_chat_id);
+                }
 
                 await supabase.from('groups').update({ 
                     member_count: membros,
