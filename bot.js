@@ -332,10 +332,12 @@ bot.on('my_chat_member', async (ctx) => {
                 try { await ctx.telegram.sendMessage(userId, `✅ *BOM TRABALHO!*\n\nAs minhas permissões no grupo *${chat.title}* foram restauradas.\n\nStatus alterado para: 🟢 APROVADO.\nEle já voltou para a rotação de divulgação!`, { parse_mode: 'Markdown' }); } catch(e){}
             } 
             else if (existingGroup.status === 'pending') {
-                try { await ctx.telegram.sendMessage(userId, `ℹ️ O grupo/canal *${chat.title}* já está aguardando aprovação!`, { parse_mode: 'Markdown' }); } catch(e){}
+                // Alterado para avisar no grupo, pois a pessoa pode não ter iniciado o PV deste bot específico
+                try { await ctx.replyWithHTML(`ℹ️ Olá! Notei que este grupo já está <b>aguardando aprovação</b> no nosso sistema por outro bot da rede. Em breve será avaliado!`).catch(()=>null); } catch(e){}
             }
-            else {
-                try { await ctx.telegram.sendMessage(userId, `ℹ️ O grupo/canal *${chat.title}* já está cadastrado no sistema!`, { parse_mode: 'Markdown' }); } catch(e){}
+            else if (existingGroup.status === 'approved') {
+                // 🔥 A MÁGICA DA AUTO-APROVAÇÃO FICA AQUI:
+                try { await ctx.replyWithHTML(`🎉 <b>Auto-Aprovado!</b>\n\nEste grupo já faz parte da nossa rede de parceiros! Como já foi aprovado anteriormente, eu já estou pronto para começar as divulgações aqui.`).catch(()=>null); } catch(e){}
             }
         } else {
             const { error } = await supabase.from('groups').insert([{ user_id: userId, telegram_chat_id: chat.id.toString(), name: chat.title, link: link, status: 'pending' }]);
