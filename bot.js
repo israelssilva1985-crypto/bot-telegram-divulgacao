@@ -145,7 +145,7 @@ async function atualizarContagemMembros() {
             } catch (err) {
                 console.error(`❌ [ERRO] Falha no grupo ${grupo.name}:`, err.message);
             }
-            await sleep(300); // Um delay de segurança um pouco maior para poupar a API do Telegram
+            await sleep(1500); // Um delay de segurança um pouco maior para poupar a API do Telegram
         }
 
         console.log(`✅ [SUCESSO] Atualização concluída! ${atualizados} grupos tiveram links e membros renovados.`);
@@ -155,7 +155,6 @@ async function atualizarContagemMembros() {
     }
 }
 
-atualizarContagemMembros();
 cron.schedule('0 */12 * * *', atualizarContagemMembros);
 
 // ==========================================
