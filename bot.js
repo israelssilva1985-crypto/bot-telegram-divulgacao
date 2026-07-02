@@ -175,7 +175,7 @@ bot.start(async (ctx) => {
         }
 
         const botUsername = ctx.botInfo.username;
-        const mensagem = `Olá! 🤖\n\nPara participar da nossa rede de divulgação, adicione este bot ao seu Grupo ou Canal como Administrador.\n\nDepois que aprovarmos no sistema, seu grupo entrará na nossa rotação automática!`;
+        const mensagem = `Olá! 🤖\n\nPara participar da nossa rede de divulgação, adicione este bot ao seu Grupo ou Canal como Administrador.\n\nDepois que aprovarmos no sistema, seu grupo entrará na nossa rotação automática! \n\nNossos bots de divulgaçao. \n\n@divulga_parceiros_OFC_bot \n\n@divulga_grupos_bot \n\n@divulgacao_de_links_bot`;
 
         await ctx.reply(mensagem, {
             reply_markup: {
