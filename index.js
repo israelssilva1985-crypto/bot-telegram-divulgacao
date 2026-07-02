@@ -18,17 +18,24 @@ app.listen(PORT, () => {
     
     // 🔥 Liga a nossa "Fábrica" de Bots do Telegram
     bots.forEach((botInstancia, index) => {
-        botInstancia.launch().then(() => {
-            // Se o botInfo ainda não estiver carregado, mostra pelo menos o número dele
-            const botName = botInstancia.botInfo ? botInstancia.botInfo.username : `Bot ${index + 1}`;
-            console.log(`🤖 [${botName}] Online e ouvindo!`);
-        }).catch((erro) => {
-            console.log(`❌ Erro ao conectar o Bot ${index + 1}:`, erro.message);
-        });
+        // 1. Força o Telegram a deletar qualquer Webhook fantasma e limpa mensagens velhas
+        botInstancia.telegram.deleteWebhook({ drop_pending_updates: true })
+            .then(() => {
+                // 2. Agora liga o bot de forma limpa (Polling)
+                return botInstancia.launch();
+            })
+            .then(() => {
+                // 3. Sucesso! Mostra o nome do bot.
+                const botName = botInstancia.botInfo ? botInstancia.botInfo.username : `Bot ${index + 1}`;
+                console.log(`🤖 [${botName}] Online e ouvindo!`);
+            })
+            .catch((erro) => {
+                console.log(`❌ Erro ao conectar o Bot ${index + 1}:`, erro.message);
+            });
     });
 });
 
-// Segurança para desligar TODOS os bots corretamente se você fechar o terminal
+// Segurança para desligar TODOS os bots corretamente se o Render reiniciar
 process.once('SIGINT', () => {
     console.log('🛑 Desligando a rede de bots (SIGINT)...');
     bots.forEach(botInstancia => botInstancia.stop('SIGINT'));
