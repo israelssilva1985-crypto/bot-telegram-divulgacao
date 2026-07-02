@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
-// 🔥 MUDANÇA AQUI: Agora importamos o array 'bots' que criaremos no bot.js
-import { bots } from './bot.js'; 
+// 🔥 CORREÇÃO: Adicionamos a importação do 'configurarBot'
+import { bots, configurarBot } from './bot.js'; 
 import { handleWebhook } from './mercadopago.js';
 
 dotenv.config();
@@ -18,6 +18,10 @@ app.listen(PORT, () => {
     
     // 🔥 Liga a nossa "Fábrica" de Bots do Telegram
     bots.forEach((botInstancia, index) => {
+        
+        // 🔥 CORREÇÃO: Injeta todos os comandos e lógicas no bot ANTES de ligar!
+        configurarBot(botInstancia); 
+
         // 1. Força o Telegram a deletar qualquer Webhook fantasma e limpa mensagens velhas
         botInstancia.telegram.deleteWebhook({ drop_pending_updates: true })
             .then(() => {
