@@ -484,17 +484,8 @@ if (blocoVips.length + blocoFree.length < 20 && vIndex < vipLinks.length) {
             }
         }
         await sleep(3000);
-            
-        } catch (err) {
-            if ((err.code === 403 || err.code === 400) && !err.message.includes('parse entities')) {
-                await supabase.from('groups').update({ status: 'removed' }).eq('telegram_chat_id', target.telegram_chat_id);
-                try {
-                    const aviso = `⚠️ *ALERTA DE DIVULGAÇÃO*\n\nTentei enviar a lista no seu grupo *${target.name}*, mas fui bloqueado!\nO seu grupo foi **PAUSADO** (Status: removed). Corrija as permissões.`;
-                    await bot.telegram.sendMessage(target.user_id, aviso, { parse_mode: 'Markdown' });
-                } catch(e) {}
-            }
-        }
-    }
+    } // Fim do loop for dos grupos
+
     console.log(`✅ [SUCESSO] Divulgação concluída! ${enviosComSucesso} grupos atualizados.`);
 });
 
