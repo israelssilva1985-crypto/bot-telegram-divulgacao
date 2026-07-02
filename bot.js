@@ -13,6 +13,11 @@ const tokens = [
     process.env.BOT_TOKEN_3
 ].filter(Boolean);
 
+console.log("🔍 TESTE DE TOKENS (Primeiros 10 caracteres):");
+tokens.forEach((t, index) => {
+    console.log(`Bot ${index + 1}: ${t.substring(0, 10)}...`);
+});
+
 export const bots = tokens.map(token => new Telegraf(token));
 
 // Memória para saber quem está a tentar renomear um grupo
