@@ -7,7 +7,13 @@ import { createPixPayment, handleWebhook } from './mercadopago.js';
 
 dotenv.config();
 
-export const bot = new Telegraf(process.env.BOT_TOKEN);
+const tokens = [
+    process.env.BOT_TOKEN_1, 
+    process.env.BOT_TOKEN_2, 
+    process.env.BOT_TOKEN_3
+].filter(Boolean);
+
+export const bots = tokens.map(token => new Telegraf(token));
 
 // Memória para saber quem está a tentar renomear um grupo
 const renomeando = new Map();
@@ -105,31 +111,39 @@ async function atualizarContagemMembros() {
 
         for (const grupo of grupos) {
             try {
-                // Puxa as infos reais do grupo no Telegram neste exato momento
-                const chatInfo = await bot.telegram.getChat(grupo.telegram_chat_id);
-                const membros = await bot.telegram.getChatMembersCount(grupo.telegram_chat_id);
-                
-                let linkAtualizado = '';
-                if (chatInfo.username) {
-                    // Se o grupo é público, o link é o @username
-                    linkAtualizado = `https://t.me/${chatInfo.username}`;
-                } else if (chatInfo.invite_link) {
-                    // JEITO SEGURO: Se for privado e o Telegram já tiver um link ativo devolvido, usa ele sem revogar!
-                    linkAtualizado = chatInfo.invite_link;
-                } else {
-                    // ÚLTIMO CASO: Só cria um link novo (e revoga o antigo) se realmente não existir nenhum link disponível
-                    linkAtualizado = await bot.telegram.exportChatInviteLink(grupo.telegram_chat_id);
-                }
+                let infoAtualizada = false;
+                for (const botAtual of bots) {
+                    try {
+                        const chatInfo = await botAtual.telegram.getChat(grupo.telegram_chat_id);
+                        const membros = await botAtual.telegram.getChatMembersCount(grupo.telegram_chat_id);
+                        
+                        let linkAtualizado = '';
+                        if (chatInfo.username) {
+                            linkAtualizado = `https://t.me/${chatInfo.username}`;
+                        } else if (chatInfo.invite_link) {
+                            linkAtualizado = chatInfo.invite_link;
+                        } else {
+                            linkAtualizado = await botAtual.telegram.exportChatInviteLink(grupo.telegram_chat_id);
+                        }
 
-                await supabase.from('groups').update({ 
-                    member_count: membros,
-                    link: linkAtualizado 
-                }).eq('id', grupo.id);
+                        await supabase.from('groups').update({ 
+                            member_count: membros,
+                            link: linkAtualizado 
+                        }).eq('id', grupo.id);
+                        
+                        atualizados++;
+                        infoAtualizada = true;
+                        break; // Se um bot conseguiu, para de tentar os outros e vai pro próximo grupo
+                    } catch (err) {
+                        continue; // Falhou, tenta o próximo bot
+                    }
+                }
                 
-                atualizados++;
-            } catch (err) {
-                console.log(`⚠️ [AVISO] Não foi possível ler dados de: ${grupo.name} (Bot sem permissão de convite ou expulso)`);
-            }
+                if (!infoAtualizada) {
+                    console.log(`⚠️ [AVISO] Não foi possível ler dados de: ${grupo.name} (Nenhum bot tem permissão)`);
+                }
+            } catch (err) {
+                // ... mantém o catch original ...
             await sleep(300); // Um delay de segurança um pouco maior para poupar a API do Telegram
         }
 
@@ -146,6 +160,7 @@ cron.schedule('0 */12 * * *', atualizarContagemMembros);
 // ==========================================
 // 1. COMANDO /start
 // ==========================================
+export function configurarBot(bot) {
 bot.start(async (ctx) => {
     if (ctx.chat.type === 'private') {
         const userId = ctx.from.id.toString();
@@ -441,14 +456,34 @@ if (blocoVips.length + blocoFree.length < 20 && vIndex < vipLinks.length) {
             { text: '🌐 Lista Completa', url: 'https://grupolink.site/grupos-do-bot' }
         ]);
 
-        try {
-            const mensagemEnviada = await bot.telegram.sendMessage(target.telegram_chat_id, textoMensagem, { 
-                parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: tecladoBotoes }
-            });
+        let mensagemEnviada = null;
 
-            await bot.telegram.pinChatMessage(target.telegram_chat_id, mensagemEnviada.message_id, { disable_notification: true }).catch(() => {});
-            enviosComSucesso++;
-            await sleep(3000); 
+        for (const botAtual of bots) {
+            try {
+                mensagemEnviada = await botAtual.telegram.sendMessage(target.telegram_chat_id, textoMensagem, { 
+                    parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: tecladoBotoes }
+                });
+
+                await botAtual.telegram.pinChatMessage(target.telegram_chat_id, mensagemEnviada.message_id, { disable_notification: true }).catch(() => {});
+                enviosComSucesso++;
+                break; // Conseguiu enviar? Para de tentar com os outros bots
+            } catch (err) {
+                continue; // Dá erro 403 se o bot não estiver no grupo, então tenta o próximo
+            }
+        }
+
+        if (!mensagemEnviada) {
+            // Se nenhum bot conseguiu, remove o grupo
+            await supabase.from('groups').update({ status: 'removed' }).eq('telegram_chat_id', target.telegram_chat_id);
+            for (const botAtual of bots) {
+                try {
+                    const aviso = `⚠️ *ALERTA DE DIVULGAÇÃO*\n\nTentei enviar a lista no seu grupo *${target.name}*, mas nenhum dos nossos bots tem permissão!\nO seu grupo foi **PAUSADO** (Status: removed). Corrija as permissões.`;
+                    await botAtual.telegram.sendMessage(target.user_id, aviso, { parse_mode: 'Markdown' });
+                    break;
+                } catch(e) {}
+            }
+        }
+        await sleep(3000);
             
         } catch (err) {
             if ((err.code === 403 || err.code === 400) && !err.message.includes('parse entities')) {
@@ -472,10 +507,17 @@ supabase.channel('mudancas-de-status')
         const { status: statusNovo, user_id: userId, name: nomeGrupo } = payload.new;
 
         if (statusAntigo !== statusNovo) {
-            if (statusNovo === 'approved') {
-                try { await bot.telegram.sendMessage(userId, `🎉 *Boas notícias!*\n\nSeu grupo/canal *${nomeGrupo}* foi **APROVADO**! Ele já está na nossa rotação.`, { parse_mode: 'Markdown' }); } catch (err) {}
-            } else if (statusNovo === 'rejected') {
-                try { await bot.telegram.sendMessage(userId, `❌ *Aviso!*\n\nSeu grupo/canal *${nomeGrupo}* foi **REJEITADO** no nosso sistema.`, { parse_mode: 'Markdown' }); } catch (err) {}
+            for (const botAtual of bots) {
+                try {
+                    if (statusNovo === 'approved') {
+                        await botAtual.telegram.sendMessage(userId, `🎉 *Boas notícias!*\n\nSeu grupo/canal *${nomeGrupo}* foi **APROVADO**! Ele já está na nossa rotação.`, { parse_mode: 'Markdown' });
+                    } else if (statusNovo === 'rejected') {
+                        await botAtual.telegram.sendMessage(userId, `❌ *Aviso!*\n\nSeu grupo/canal *${nomeGrupo}* foi **REJEITADO** no nosso sistema.`, { parse_mode: 'Markdown' });
+                    }
+                    break; // Enviou com um bot? Pode parar.
+                } catch (err) {
+                    continue;
+                }
             }
         }
     }).subscribe();
@@ -593,35 +635,4 @@ bot.action(/^pay_(bronze|silver|gold|diamond)_(.+)$/, async (ctx) => {
         await ctx.reply('❌ Ocorreu um erro. Verifique o terminal para mais detalhes.');
     }
 });
-
-// ==========================================
-// 🌐 SERVIDOR WEBHOOK E GRACEFUL SHUTDOWN (DESLIGAMENTO SEGURO)
-// ==========================================
-const app = express();
-
-// Permite que o bot entenda a mensagem que o Mercado Pago vai enviar
-app.use(express.json()); 
-
-// Resposta para o UptimeRobot não achar que o bot caiu (Fica Verde)
-app.get('/', (req, res) => res.send('Bot está online e respirando! 🤖'));
-
-// Essa é a rota (o link) que o Mercado Pago vai chamar
-app.post('/webhook', handleWebhook);
-
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-    console.log(`🌐 [SISTEMA] Servidor Webhook rodando e escutando na porta ${PORT}!`);
-});
-
-// Desligamento Seguro: Evita corrupção no banco de dados
-process.once('SIGINT', () => {
-    console.log('🛑 [SISTEMA] Sinal de interrupção recebido. Desligando bot...');
-    bot.stop('SIGINT');
-    server.close();
-});
-
-process.once('SIGTERM', () => {
-    console.log('🛑 [SISTEMA] Sinal de finalização recebido. Desligando bot...');
-    bot.stop('SIGTERM');
-    server.close();
-});
+    } // Fim da função configurarBot
