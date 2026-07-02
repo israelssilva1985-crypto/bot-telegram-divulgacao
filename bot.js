@@ -97,20 +97,20 @@ cron.schedule('0 0 * * *', async () => {
 // 👥 ATUALIZADOR DE MEMBROS E LINKS (A cada 12h)
 // ==========================================
 async function atualizarContagemMembros() {
-    console.log('👥 [SISTEMA] Iniciando atualização da contagem de membros e links dos grupos...');
+    console.log('👥 [SISTEMA] Iniciando atualização da contagem de membros e links dos grupos...');
 
-    try {
-        const { data: grupos, error } = await supabase.from('groups').select('id, telegram_chat_id, name').eq('status', 'approved');
+    try {
+        const { data: grupos, error } = await supabase.from('groups').select('id, telegram_chat_id, name').eq('status', 'approved');
 
-        if (error || !grupos) {
-            console.error('❌ [ERRO] Falha ao buscar grupos para atualizar:', error?.message);
-            return;
-        }
+        if (error || !grupos) {
+            console.error('❌ [ERRO] Falha ao buscar grupos para atualizar:', error?.message);
+            return;
+        }
 
-        let atualizados = 0;
+        let atualizados = 0;
 
-        for (const grupo of grupos) {
-            try {
+        for (const grupo of grupos) {
+            try {
                 let infoAtualizada = false;
                 for (const botAtual of bots) {
                     try {
@@ -143,15 +143,16 @@ async function atualizarContagemMembros() {
                     console.log(`⚠️ [AVISO] Não foi possível ler dados de: ${grupo.name} (Nenhum bot tem permissão)`);
                 }
             } catch (err) {
-                // ... mantém o catch original ...
-            await sleep(300); // Um delay de segurança um pouco maior para poupar a API do Telegram
-        }
+                console.error(`❌ [ERRO] Falha no grupo ${grupo.name}:`, err.message);
+            }
+            await sleep(300); // Um delay de segurança um pouco maior para poupar a API do Telegram
+        }
 
-        console.log(`✅ [SUCESSO] Atualização concluída! ${atualizados} grupos tiveram links e membros renovados.`);
+        console.log(`✅ [SUCESSO] Atualização concluída! ${atualizados} grupos tiveram links e membros renovados.`);
 
-    } catch (err) {
-        console.error('❌ [ERRO] Erro inesperado ao atualizar membros:', err);
-    }
+    } catch (err) {
+        console.error('❌ [ERRO] Erro inesperado ao atualizar membros:', err);
+    }
 }
 
 atualizarContagemMembros();
