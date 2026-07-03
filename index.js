@@ -8,6 +8,11 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+// 🔥 NOVA ROTA: Responde ao Cron-job e ao navegador para evitar o erro "Cannot GET /"
+app.get('/', (req, res) => {
+    res.status(200).send('🚀 Sistema de Bots de Divulgação está online e operante!');
+});
+
 // Rota para receber os avisos de PIX pago do Mercado Pago
 app.post('/webhook', handleWebhook);
 
