@@ -439,8 +439,8 @@ if (blocoVips.length + blocoFree.length < 20 && vIndex < vipLinks.length) {
     }
 
     const botUsername = bot.botInfo ? bot.botInfo.username : 'divulga_parceiros_OFC_bot';
-    const textoMensagem = `💯 <b>Grupos do Telegram</b>\n\n✅ Entre em nosso site e aumente seu alcançe: https://grupolink.site/\n\n🔥 Adicione no seu canal ou grupo: @${botUsername}`;
-    let enviosComSucesso = 0;
+const textoMensagem = `💯 <b>Grupos do Telegram</b>\n\n✅ Entre em nosso site e aumente seu alcance: https://grupolink.site/\n\n🔥 <b>Adicione nossos bots no seu canal ou grupo:</b>\n🤖 @divulga_parceiros_OFC_bot\n🤖 @divulga_grupos_bot\n🤖 @divulgacao_de_links_bot`;
+let enviosComSucesso = 0;
 
     for (let i = 0; i < alvosOrdenados.length; i++) {
         const target = alvosOrdenados[i];
