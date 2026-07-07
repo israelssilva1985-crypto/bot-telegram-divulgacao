@@ -377,118 +377,138 @@ bot.on('my_chat_member', async (ctx) => {
 // 7. MOTOR DE DIVULGAÇÃO (FILA INTERCALADA POR HORA)
 // ==========================================
 
-// Função que roda a divulgação para apenas UM bot específico por vez
+// Trava de segurança: impede que o mesmo bot rode duas vezes ao mesmo tempo
+const emExecucao = { 0: false, 1: false, 2: false };
+
 async function rodarDivulgacao(botAtual, botIndex) {
-    console.log(`🔄 [SISTEMA] Iniciando rotina de postagem para o Bot ${botIndex + 1}...`);
-    
-    const { data: todosGrupos, error: errTop } = await supabase.from('groups').select('*').eq('status', 'approved');
-
-    if (errTop || !todosGrupos || todosGrupos.length === 0) {
-        return console.log(`⚠️ [INFO] Bot ${botIndex + 1}: Nenhum grupo aprovado encontrado para a rotação.`);
+    // Se o bot já estiver divulgando (clonagem de cron), ele ignora
+    if (emExecucao[botIndex]) {
+        console.log(`⚠️ [AVISO] Bot ${botIndex + 1} já está em execução. Ignorando chamada duplicada.`);
+        return;
     }
+    emExecucao[botIndex] = true;
 
-    // 1. Define os pesos de cada plano
-    const getPeso = (grupo) => {
-        const plano = (grupo.plan || grupo.boost_tier || '').toLowerCase();
-        if (['diamante', 'diamond'].includes(plano)) return 4;
-        if (['ouro', 'gold'].includes(plano)) return 3;
-        if (['prata', 'silver'].includes(plano)) return 2;
-        if (plano === 'bronze') return 1;
-        return 0; // Grátis
-    };
+    try {
+        console.log(`🔄 [SISTEMA] Iniciando rotina de postagem para o Bot ${botIndex + 1}...`);
+        
+        const { data: todosGrupos, error: errTop } = await supabase.from('groups').select('*').eq('status', 'approved');
 
-    const getEmoji = (peso) => ['‍', '‍', '‍', '‍', '‍'][peso] || '‍';
-
-    // 2. Ordena todos os grupos pelo número de membros como critério de desempate
-    const alvosOrdenados = todosGrupos
-        .map(g => ({ ...g, membros: g.member_count || 0 }))
-        .sort((a, b) => b.membros - a.membros);
-
-// 3. Separa VIPs e Grátis (VIPs ordenados do maior pro menor estritamente)
-    const vipLinks = alvosOrdenados.filter(g => getPeso(g) > 0).sort((a, b) => getPeso(b) - getPeso(a));
-    const freeLinks = alvosOrdenados.filter(g => getPeso(g) === 0).sort(() => Math.random() - 0.5);
-
-    const blocos = [];
-    let vIndex = 0;
-    let fIndex = 0;
-
-    // 4. Monta os blocos garantindo VIPs no topo e Grátis embaixo
-    while (vIndex < vipLinks.length || fIndex < freeLinks.length) {
-        // Pega até 10 VIPs na ordem da hierarquia para este lote
-        let blocoVips = vipLinks.slice(vIndex, vIndex + 10);
-        vIndex += 10;
-
-        // O espaço que sobrar (até dar 20 botões) nós preenchemos com os grátis
-        let vagasParaFree = 20 - blocoVips.length;
-        let blocoFree = freeLinks.slice(fIndex, fIndex + vagasParaFree);
-        fIndex += vagasParaFree;
-
-        // Se o bloco ficar com menos de 20 (ex: acabou os grátis da lista), 
-        // ele pega mais grátis aleatórios para não mandar mensagem vazia
-        if (blocoVips.length + blocoFree.length < 20 && alvosOrdenados.length >= 20) {
-            let faltam = 20 - (blocoVips.length + blocoFree.length);
-            let gruposExtras = freeLinks
-                .filter(g => !blocoFree.includes(g))
-                .sort(() => Math.random() - 0.5)
-                .slice(0, faltam);
-            blocoFree = [...blocoFree, ...gruposExtras];
+        if (errTop || !todosGrupos || todosGrupos.length === 0) {
+            console.log(`⚠️ [INFO] Bot ${botIndex + 1}: Nenhum grupo aprovado encontrado.`);
+            emExecucao[botIndex] = false;
+            return;
         }
 
-        // 5. A MÁGICA DA ORDEM: VIPs em cima, Grátis embaixo.
-        let blocoFinal = [...blocoVips, ...blocoFree];
-        
-        if (blocoFinal.length > 0) {
-            blocos.push(blocoFinal);
+        const getPeso = (grupo) => {
+            const plano = (grupo.plan || grupo.boost_tier || '').toLowerCase();
+            if (['diamante', 'diamond'].includes(plano)) return 4;
+            if (['ouro', 'gold', 'vip', 'premium'].includes(plano)) return 3;
+            if (['prata', 'silver'].includes(plano)) return 2;
+            if (['bronze'].includes(plano)) return 1;
+            return 0; 
+        };
+
+        const getEmoji = (peso) => ['‍', '‍', '‍', '‍', '‍'][peso] || '‍';
+
+        const alvosOrdenados = todosGrupos
+            .map(g => ({ ...g, membros: g.member_count || 0 }))
+            .sort((a, b) => b.membros - a.membros);
+
+        // Separação correta: VIPs do maior pro menor, e Free embaralhados
+        const vipLinks = alvosOrdenados.filter(g => getPeso(g) > 0).sort((a, b) => getPeso(b) - getPeso(a));
+        const freeLinks = alvosOrdenados.filter(g => getPeso(g) === 0).sort(() => Math.random() - 0.5);
+
+        const blocos = [];
+        let vIndex = 0, fIndex = 0;
+
+        // Monta os blocos mantendo a hierarquia
+        while (vIndex < vipLinks.length || fIndex < freeLinks.length) {
+            let blocoVips = vipLinks.slice(vIndex, vIndex + 10);
+            vIndex += 10;
+            
+            let vagasFree = 20 - blocoVips.length;
+            let blocoFree = freeLinks.slice(fIndex, fIndex + vagasFree);
+            fIndex += vagasFree;
+
+            if (blocoVips.length + blocoFree.length < 20 && alvosOrdenados.length >= 20) {
+                 let faltam = 20 - (blocoVips.length + blocoFree.length);
+                 let gruposExtras = freeLinks.filter(g => !blocoFree.includes(g)).sort(() => Math.random() - 0.5).slice(0, faltam);
+                 blocoFree = [...blocoFree, ...gruposExtras];
+            }
+
+            // O bloco final é montado e NUNCA mais é reordenado com Math.random
+            let blocoFinal = [...blocoVips, ...blocoFree];
+            if (blocoFinal.length > 0) blocos.push(blocoFinal);
         }
-    }
-    const botUsername = botAtual.botInfo ? botAtual.botInfo.username : 'divulga_parceiros_OFC_bot';
-    const textoMensagem = `💯 <b>Grupos do Telegram</b>\n\n✅ Entre em nosso site e aumente seu alcance: https://grupolink.site/\n\n🔥 <b>Adicione nossos bots no seu canal ou grupo:</b>\n🤖 @divulga_parceiros_OFC_bot\n🤖 @divulga_grupos_bot\n🤖 @divulgacao_de_links_bot`;
-    let enviosComSucesso = 0;
 
-    for (let i = 0; i < alvosOrdenados.length; i++) {
-        const target = alvosOrdenados[i];
+        const botUsername = botAtual.botInfo ? botAtual.botInfo.username : 'divulga_parceiros_OFC_bot';
+        const textoMensagem = `💯 <b>Grupos do Telegram</b>\n\n✅ Entre em nosso site e aumente seu alcance: https://grupolink.site/\n\n🔥 <b>Adicione nossos bots no seu canal ou grupo:</b>\n🤖 @divulga_parceiros_OFC_bot\n🤖 @divulga_grupos_bot\n🤖 @divulgacao_de_links_bot`;
         
-        // Pega o bloco atual (ele já está com os VIPs travados no topo na ordem certa)
-        let blocoAtual = blocos[i % blocos.length]; 
-        
-        let tecladoBotoes = blocoAtual.map(grupo => {
-            const urlSegura = (grupo.link && grupo.link.startsWith('http')) ? grupo.link : 'https://grupolink.site/';
-            return [{ text: `${getEmoji(getPeso(grupo))} ${grupo.name}`, url: urlSegura }];
-        });
-        
-        tecladoBotoes.push([
-            { text: '✅ Adicionar', url: `https://t.me/${botUsername}?startgroup=true` },
-            { text: '🌐 Lista Completa', url: 'https://grupolink.site/grupos-do-bot' }
-        ]);
+        let enviosComSucesso = 0;
 
-        try {
-            const mensagemEnviada = await botAtual.telegram.sendMessage(target.telegram_chat_id, textoMensagem, { 
-                parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: tecladoBotoes }
+        for (let i = 0; i < alvosOrdenados.length; i++) {
+            const target = alvosOrdenados[i];
+            
+            // Pega o bloco atual na ordem original intocada
+            let blocoAtual = blocos[i % blocos.length]; 
+            
+            let tecladoBotoes = blocoAtual.map(grupo => {
+                const urlSegura = (grupo.link && grupo.link.startsWith('http')) ? grupo.link : 'https://grupolink.site/';
+                return [{ text: `${getEmoji(getPeso(grupo))} ${grupo.name}`, url: urlSegura }];
             });
+            
+            tecladoBotoes.push([
+                { text: '✅ Adicionar', url: `https://t.me/${botUsername}?startgroup=true` },
+                { text: '🌐 Lista Completa', url: 'https://grupolink.site/grupos-do-bot' }
+            ]);
 
-            await botAtual.telegram.pinChatMessage(target.telegram_chat_id, mensagemEnviada.message_id, { disable_notification: true }).catch(() => {});
-            enviosComSucesso++;
-        } catch (err) {
-            // Ignora falhas (bot removido do grupo, sem permissão, etc)
+            try {
+                const mensagemEnviada = await botAtual.telegram.sendMessage(target.telegram_chat_id, textoMensagem, { 
+                    parse_mode: 'HTML', disable_web_page_preview: true, reply_markup: { inline_keyboard: tecladoBotoes }
+                });
+                await botAtual.telegram.pinChatMessage(target.telegram_chat_id, mensagemEnviada.message_id, { disable_notification: true }).catch(() => {});
+                enviosComSucesso++;
+            } catch (err) {
+                // Ignora erros de permissão silenciosamente
+            }
+            
+            // Pausa programada para evitar Rate Limit do Telegram
+            await new Promise(resolve => setTimeout(resolve, 3000));
         }
-        await sleep(3000); // Segurança anti-spam do Telegram
-    }
 
-    console.log(`✅ [SUCESSO] Divulgação Bot ${botIndex + 1} concluída! ${enviosComSucesso} grupos atualizados.`);
+        console.log(`✅ [SUCESSO] Divulgação Bot ${botIndex + 1} concluída! ${enviosComSucesso} grupos atualizados.`);
+    
+    } catch (error) {
+        console.log(`❌ [ERRO] Falha geral no Bot ${botIndex + 1}:`, error);
+    } finally {
+        // Libera o bot para a próxima hora
+        emExecucao[botIndex] = false;
+    }
 }
-// 🕒 Agendamento intercalado: Cada bot roda a cada 4 horas, mas com 1 hora de diferença entre si
+
+// 🕒 Agendamento intercalado
 const cronsDeHorario = [
-    '0 0,4,8,12,16,20 * * *', // Bot 1 (Index 0)
-    '0 1,5,9,13,17,21 * * *', // Bot 2 (Index 1)
-    '0 2,6,10,14,18,22 * * *' // Bot 3 (Index 2)
+    '0 0,4,8,12,16,20 * * *', // Bot 1 (00:00, 04:00, 08:00...)
+    '0 1,5,9,13,17,21 * * *', // Bot 2 (01:00, 05:00, 09:00...)
+    '0 2,6,10,14,18,22 * * *' // Bot 3 (02:00, 06:00, 10:00...)
 ];
 
-bots.forEach((botInstancia, index) => {
-    if (cronsDeHorario[index]) {
-        cron.schedule(cronsDeHorario[index], () => rodarDivulgacao(botInstancia, index));
-    }
-});
-
+// Impede o sistema de agendar os mesmos horários várias vezes caso o servidor reinicie
+if (!global.cronsRegistrados) {
+    bots.forEach((botInstancia, index) => {
+        if (cronsDeHorario[index]) {
+            cron.schedule(cronsDeHorario[index], () => {
+                rodarDivulgacao(botInstancia, index);
+            }, {
+                scheduled: true,
+                timezone: "America/Sao_Paulo" // <--- Força o horário do Brasil
+            });
+        }
+    });
+    global.cronsRegistrados = true;
+    console.log("⏰ [SISTEMA] Cronjobs registrados com sucesso no fuso horário do Brasil!");
+}
+    
 // ==========================================
 // 8. DETECTOR DE APROVAÇÃO/REJEIÇÃO (REALTIME)
 // ==========================================
