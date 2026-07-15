@@ -15,6 +15,24 @@ const tokens = [
 
 export const bots = tokens.map(token => new Telegraf(token));
 
+// ==========================================
+// 🛡️ TRATADOR DE ERROS GLOBAL (Evita congelamento por block)
+// ==========================================
+bots.forEach((botInstancia, index) => {
+    botInstancia.catch((err, ctx) => {
+        const botName = ctx.botInfo ? ctx.botInfo.username : `Bot ${index + 1}`;
+        const erroMsg = err.response ? err.response.description : err.message;
+        
+        if (erroMsg && erroMsg.includes("bot was blocked by the user")) {
+            console.log(`⚠️ [AVISO] O ${botName} foi bloqueado por um usuário. Ignorando e seguindo a vida...`);
+        } else if (erroMsg && erroMsg.includes("bot was kicked from a group chat")) {
+            console.log(`⚠️ [AVISO] O ${botName} foi removido de um grupo. Ignorando...`);
+        } else {
+            console.log(`❌ [ERRO GLOBAL] Falha no ${botName}:`, erroMsg);
+        }
+    });
+});
+
 // Memória para saber quem está a tentar renomear um grupo
 const renomeando = new Map();
 
@@ -163,31 +181,36 @@ cron.schedule('0 */12 * * *', atualizarContagemMembros);
 export function configurarBot(bot) {
 bot.start(async (ctx) => {
     if (ctx.chat.type === 'private') {
-        const userId = ctx.from.id.toString();
-        const username = ctx.from.username || ctx.from.first_name || 'Sem_Nome';
+        try {
+            const userId = ctx.from.id.toString();
+            const username = ctx.from.username || ctx.from.first_name || 'Sem_Nome';
 
-        const { error } = await supabase.from('users').upsert({ telegram_id: userId, username: username }, { onConflict: 'telegram_id' });
+            const { error } = await supabase.from('users').upsert({ telegram_id: userId, username: username }, { onConflict: 'telegram_id' });
 
-        if (error) {
-            console.error("❌ [ERRO] Erro ao salvar usuário no banco:", error.message);
-        } else {
-            console.log(`✅ [INFO] Usuário ${username} registrado/atualizado no sistema.`);
-        }
-
-        const botUsername = ctx.botInfo.username;
-        const mensagem = `Olá! 🤖\n\nPara participar da nossa rede de divulgação, adicione este bot ao seu Grupo ou Canal como Administrador.\n\nDepois que aprovarmos no sistema, seu grupo entrará na nossa rotação automática! \n\nNossos bots de divulgaçao. \n\n@divulga_parceiros_OFC_bot \n\n@divulga_grupos_bot \n\n@divulgacao_de_links_bot`;
-
-        await ctx.reply(mensagem, {
-            reply_markup: {
-                inline_keyboard: [
-                    [
-                        { text: '🟢 Add Canal', url: `https://t.me/${botUsername}?startchannel=true` },
-                        { text: '🟢 Add Grupo', url: `https://t.me/${botUsername}?startgroup=true` }
-                    ],
-                    [{ text: '🗂 Meus Canais e Grupos', callback_data: 'meus_grupos' }]
-                ]
+            if (error) {
+                console.error("❌ [ERRO] Erro ao salvar usuário no banco:", error.message);
+            } else {
+                console.log(`✅ [INFO] Usuário ${username} registrado/atualizado no sistema.`);
             }
-        });
+
+            const botUsername = ctx.botInfo.username;
+            const mensagem = `Olá! 🤖\n\nPara participar da nossa rede de divulgação, adicione este bot ao seu Grupo ou Canal como Administrador.\n\nDepois que aprovarmos no sistema, seu grupo entrará na nossa rotação automática! \n\nNossos bots de divulgaçao. \n\n@divulga_parceiros_OFC_bot \n\n@divulga_grupos_bot \n\n@divulgacao_de_links_bot`;
+
+            await ctx.reply(mensagem, {
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            { text: '🟢 Add Canal', url: `https://t.me/${botUsername}?startchannel=true` },
+                            { text: '🟢 Add Grupo', url: `https://t.me/${botUsername}?startgroup=true` }
+                        ],
+                        [{ text: '🗂 Meus Canais e Grupos', callback_data: 'meus_grupos' }]
+                    ]
+                }
+            });
+        } catch (err) {
+            // Se o usuário bloqueou o bot DEPOIS de dar start ou deu erro de rede, o catch segura a bronca
+            console.error(`❌ [ERRO /start] Falha ao processar start de ${ctx.from.first_name}:`, err.message);
+        }
     }
 });
 
