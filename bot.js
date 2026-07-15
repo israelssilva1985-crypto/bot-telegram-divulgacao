@@ -431,39 +431,59 @@ async function rodarDivulgacao(botAtual, botIndex) {
             return 0; 
         };
 
+        // Mantido exatamente como o seu original (sem emojis visíveis)
         const getEmoji = (peso) => ['‍', '‍', '‍', '‍', '‍'][peso] || '‍';
 
         const alvosOrdenados = todosGrupos
             .map(g => ({ ...g, membros: g.member_count || 0 }))
             .sort((a, b) => b.membros - a.membros);
 
-        // Separação correta: VIPs do maior pro menor, e Free embaralhados
+        // VIPs ordenados pelo plano mais alto, Free embaralhados
         const vipLinks = alvosOrdenados.filter(g => getPeso(g) > 0).sort((a, b) => getPeso(b) - getPeso(a));
         const freeLinks = alvosOrdenados.filter(g => getPeso(g) === 0).sort(() => Math.random() - 0.5);
 
         const blocos = [];
-        let vIndex = 0, fIndex = 0;
+        let vIndex = 0;
+        let fIndex = 0;
+        const TOTAL_POR_LISTA = 20;
+        const MAX_VIPS_POR_LISTA = 10; 
 
-        // Monta os blocos mantendo a hierarquia
-        while (vIndex < vipLinks.length || fIndex < freeLinks.length) {
-            let blocoVips = vipLinks.slice(vIndex, vIndex + 10);
-            vIndex += 10;
+        // Calcula quantas listas únicas precisamos gerar para cobrir todos os grupos
+        const totalListas = Math.max(1, Math.ceil(alvosOrdenados.length / TOTAL_POR_LISTA));
+
+        // Monta as listas garantindo os VIPs SEMPRE no topo
+        for (let i = 0; i < totalListas; i++) {
+            let blocoVips = [];
             
-            let vagasFree = 20 - blocoVips.length;
-            let blocoFree = freeLinks.slice(fIndex, fIndex + vagasFree);
-            fIndex += vagasFree;
-
-            if (blocoVips.length + blocoFree.length < 20 && alvosOrdenados.length >= 20) {
-                 let faltam = 20 - (blocoVips.length + blocoFree.length);
-                 let gruposExtras = freeLinks.filter(g => !blocoFree.includes(g)).sort(() => Math.random() - 0.5).slice(0, faltam);
-                 blocoFree = [...blocoFree, ...gruposExtras];
+            // Pega até 10 VIPs. O "%" faz eles se repetirem caso você tenha poucos VIPs, 
+            // garantindo que eles apareçam no topo de TODAS as mensagens enviadas!
+            if (vipLinks.length > 0) {
+                const qtdVipsNaLista = Math.min(MAX_VIPS_POR_LISTA, vipLinks.length);
+                for (let j = 0; j < qtdVipsNaLista; j++) {
+                    blocoVips.push(vipLinks[vIndex % vipLinks.length]);
+                    vIndex++;
+                }
             }
 
-            // O bloco final é montado e NUNCA mais é reordenado com Math.random
+            let blocoFree = [];
+            let vagasFree = TOTAL_POR_LISTA - blocoVips.length;
+            
+            // Preenche o resto (abaixo dos VIPs) com os grupos grátis
+            if (freeLinks.length > 0) {
+                for (let j = 0; j < vagasFree; j++) {
+                    blocoFree.push(freeLinks[fIndex % freeLinks.length]);
+                    fIndex++;
+                }
+            }
+
+            // Une o topo (VIPs) + resto (Free)
             let blocoFinal = [...blocoVips, ...blocoFree];
+            
+            // Segurança: Se você tiver menos de 20 grupos no banco todo, impede duplicação na mesma lista
+            blocoFinal = [...new Set(blocoFinal)];
+
             if (blocoFinal.length > 0) blocos.push(blocoFinal);
         }
-
         const botUsername = botAtual.botInfo ? botAtual.botInfo.username : 'divulga_parceiros_OFC_bot';
         const textoMensagem = `💯 <b>Grupos do Telegram</b>\n\n✅ Entre em nosso site e aumente seu alcance: https://grupolink.site/\n\n🔥 <b>Adicione nossos bots no seu canal ou grupo:</b>\n🤖 @divulga_parceiros_OFC_bot\n🤖 @divulga_grupos_bot\n🤖 @divulgacao_de_links_bot`;
         
