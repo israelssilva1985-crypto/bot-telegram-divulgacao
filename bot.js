@@ -33,7 +33,7 @@ bots.forEach((botInstancia, index) => {
             if (chatId) {
                 // ⚠️ ATENÇÃO: Confirme se o nome da sua tabela é 'grupos' ou 'groups' 
                 // e se a coluna do ID é 'telegram_chat_id' no seu Supabase.
-                const { error } = await supabase.from('grupos').delete().eq('telegram_chat_id', chatId);
+                const { error } = await supabase.from('groups').delete().eq('telegram_chat_id', chatId);
                 
                 if (error) {
                     console.error(`❌ Erro ao deletar o chat ${chatId} do banco:`, error.message);
