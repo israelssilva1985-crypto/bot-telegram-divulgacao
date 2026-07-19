@@ -16,17 +16,31 @@ const tokens = [
 export const bots = tokens.map(token => new Telegraf(token));
 
 // ==========================================
-// 🛡️ TRATADOR DE ERROS GLOBAL (Evita congelamento por block)
+// 🛡️ TRATADOR DE ERROS GLOBAL COM LIMPEZA AUTOMÁTICA
 // ==========================================
 bots.forEach((botInstancia, index) => {
-    botInstancia.catch((err, ctx) => {
+    botInstancia.catch(async (err, ctx) => {
         const botName = ctx.botInfo ? ctx.botInfo.username : `Bot ${index + 1}`;
         const erroMsg = err.response ? err.response.description : err.message;
         
-        if (erroMsg && erroMsg.includes("bot was blocked by the user")) {
-            console.log(`⚠️ [AVISO] O ${botName} foi bloqueado por um usuário. Ignorando e seguindo a vida...`);
-        } else if (erroMsg && erroMsg.includes("bot was kicked from a group chat")) {
-            console.log(`⚠️ [AVISO] O ${botName} foi removido de um grupo. Ignorando...`);
+        // Verifica erros de banimento, expulsão ou grupo inexistente
+        if (erroMsg && (erroMsg.includes("bot was blocked") || erroMsg.includes("kicked") || erroMsg.includes("chat not found") || erroMsg.includes("not a member"))) {
+            console.log(`⚠️ [AVISO] O ${botName} foi bloqueado/removido. Limpando do banco de dados...`);
+            
+            // Tenta capturar o ID do grupo que gerou o erro
+            const chatId = err.on && err.on.payload ? err.on.payload.chat_id : null;
+            
+            if (chatId) {
+                // ⚠️ ATENÇÃO: Confirme se o nome da sua tabela é 'grupos' ou 'groups' 
+                // e se a coluna do ID é 'telegram_chat_id' no seu Supabase.
+                const { error } = await supabase.from('grupos').delete().eq('telegram_chat_id', chatId);
+                
+                if (error) {
+                    console.error(`❌ Erro ao deletar o chat ${chatId} do banco:`, error.message);
+                } else {
+                    console.log(`🧹 Faxina feita! ID fantasma ${chatId} removido com sucesso!`);
+                }
+            }
         } else {
             console.log(`❌ [ERRO GLOBAL] Falha no ${botName}:`, erroMsg);
         }
