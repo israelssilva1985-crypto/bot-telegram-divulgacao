@@ -126,13 +126,14 @@ cron.schedule('0 0 * * *', async () => {
 });
 
 // ==========================================
-// 👥 ATUALIZADOR DE MEMBROS E LINKS (A cada 12h)
+// 👥 ATUALIZADOR DE MEMBROS E LINKS (A cada 6h)
 // ==========================================
 async function atualizarContagemMembros() {
     console.log('👥 [SISTEMA] Iniciando atualização da contagem de membros e links dos grupos...');
 
     try {
-        const { data: grupos, error } = await supabase.from('groups').select('id, telegram_chat_id, name').eq('status', 'approved');
+        // Adicionado 'user_id' na seleção para podermos notificar o dono
+        const { data: grupos, error } = await supabase.from('groups').select('id, telegram_chat_id, name, user_id').eq('status', 'approved');
 
         if (error || !grupos) {
             console.error('❌ [ERRO] Falha ao buscar grupos para atualizar:', error?.message);
@@ -171,13 +172,28 @@ async function atualizarContagemMembros() {
                     }
                 }
                 
+                // Se nenhum bot conseguiu acesso, o grupo caiu ou o bot perdeu permissão
                 if (!infoAtualizada) {
-                    console.log(`⚠️ [AVISO] Não foi possível ler dados de: ${grupo.name} (Nenhum bot tem permissão)`);
+                    console.log(`⚠️ [AVISO] Sem acesso ao grupo: ${grupo.name}. Alterando status para 'removed'.`);
+                    
+                    // Atualiza o status para 'removed' no banco
+                    await supabase.from('groups').update({ status: 'removed' }).eq('id', grupo.id);
+
+                    // Tenta avisar o dono no privado
+                    if (grupo.user_id) {
+                        try {
+                            const aviso = `⚠️ *Atenção!*\n\nNão consegui acessar os dados do seu grupo/canal *${grupo.name}* (provavelmente perdi as permissões de administrador ou o link expirou).\n\nPor conta disso, a divulgação do grupo foi **PAUSADA**.\n\nPara voltar à rotação de divulgação, adicione-me novamente como administrador com as permissões corretas!`;
+                            
+                            await bots[0].telegram.sendMessage(grupo.user_id, aviso, { parse_mode: 'Markdown' });
+                        } catch (msgErr) {
+                            console.log(`⚠️ Não foi possível notificar o dono do grupo ${grupo.name} (Pode ter bloqueado o bot).`);
+                        }
+                    }
                 }
             } catch (err) {
                 console.error(`❌ [ERRO] Falha no grupo ${grupo.name}:`, err.message);
             }
-            await sleep(1500); // Um delay de segurança um pouco maior para poupar a API do Telegram
+            await sleep(1500); // Delay de segurança
         }
 
         console.log(`✅ [SUCESSO] Atualização concluída! ${atualizados} grupos tiveram links e membros renovados.`);
@@ -187,7 +203,7 @@ async function atualizarContagemMembros() {
     }
 }
 
-cron.schedule('0 */12 * * *', atualizarContagemMembros);
+cron.schedule('0 */6 * * *', atualizarContagemMembros);
 
 // ==========================================
 // 1. COMANDO /start
