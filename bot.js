@@ -427,6 +427,25 @@ bot.on('my_chat_member', async (ctx) => {
 });
 
 // ==========================================
+// 🔗 SEUS 12 LINKS PERSONALIZADOS (NO TOPO)
+// ==========================================
+// Edite os títulos e as URLs aqui. Você pode usar emojis livremente!
+const MEUS_LINKS_PERSONALIZADOS = [
+    { titulo: 'PLATAFORMA PAGANDO 🔥📈', url: 'https://98a5.xyz/?pid=1425253988' },
+    { titulo: 'DEPOSITO SOMENTE 5 REAIS⬇️💵', url: 'http://wdbz8e.com/?pid=3946842948' },
+    { titulo: 'PAGANDO FORTUNE TIGER🐯💸', url: 'https://838x1.com/?pid=4138194760' },
+    { titulo: 'BONUS NO CADASTRO🎁', url: 'https://76p11.com/?a=9pwvvbwm' },
+    { titulo: 'CHINESA NOVA DISTRIBUINDO MUITOO🇨🇳💸', url: 'https://30win104.com/?id=846395032' },
+    { titulo: 'PLATAFORMA BUGADA🤑', url: 'https://G45004.com/?pid=4258938277' },
+    { titulo: 'RTP ALTO NO FORTUNE SNAKE🐍', url: 'https://9bm.cloud/?pid=1411406752' },
+    { titulo: 'CASA NOVA DISTRIBUINDO MUITOO💸', url: 'https://234vip38.com/?pid=513549461' },
+    { titulo: 'BONUS 24 HORAS', url: 'https://ydrgl3.com/?pid=3468467757' },
+    { titulo: 'NOVA CHINESA BUGADA🇨🇳🤑', url: 'https://rt9p87.com/?pid=2540232740' },
+    { titulo: 'SAQUE MINIMO 10 REAIS🔥', url: 'https://www.6gbet1.com/?id=965858595' },
+    { titulo: 'PAGANDO COM BANCA BAIXA💰', url: 'http://wdbz8e.com/?pid=3946842948' }
+];
+
+// ==========================================
 // 7. MOTOR DE DIVULGAÇÃO (FILA INTERCALADA POR HORA)
 // ==========================================
 
@@ -481,12 +500,10 @@ async function rodarDivulgacao(botAtual, botIndex) {
         // Calcula quantas listas únicas precisamos gerar para cobrir todos os grupos
         const totalListas = Math.max(1, Math.ceil(alvosOrdenados.length / TOTAL_POR_LISTA));
 
-        // Monta as listas garantindo os VIPs SEMPRE no topo
+        // Monta as listas garantindo os VIPs SEMPRE no topo da lista de grupos
         for (let i = 0; i < totalListas; i++) {
             let blocoVips = [];
             
-            // Pega até 10 VIPs. O "%" faz eles se repetirem caso você tenha poucos VIPs, 
-            // garantindo que eles apareçam no topo de TODAS as mensagens enviadas!
             if (vipLinks.length > 0) {
                 const qtdVipsNaLista = Math.min(MAX_VIPS_POR_LISTA, vipLinks.length);
                 for (let j = 0; j < qtdVipsNaLista; j++) {
@@ -498,7 +515,6 @@ async function rodarDivulgacao(botAtual, botIndex) {
             let blocoFree = [];
             let vagasFree = TOTAL_POR_LISTA - blocoVips.length;
             
-            // Preenche o resto (abaixo dos VIPs) com os grupos grátis
             if (freeLinks.length > 0) {
                 for (let j = 0; j < vagasFree; j++) {
                     blocoFree.push(freeLinks[fIndex % freeLinks.length]);
@@ -506,10 +522,7 @@ async function rodarDivulgacao(botAtual, botIndex) {
                 }
             }
 
-            // Une o topo (VIPs) + resto (Free)
             let blocoFinal = [...blocoVips, ...blocoFree];
-            
-            // Segurança: Se você tiver menos de 20 grupos no banco todo, impede duplicação na mesma lista
             blocoFinal = [...new Set(blocoFinal)];
 
             if (blocoFinal.length > 0) blocos.push(blocoFinal);
@@ -521,15 +534,25 @@ async function rodarDivulgacao(botAtual, botIndex) {
 
         for (let i = 0; i < alvosOrdenados.length; i++) {
             const target = alvosOrdenados[i];
-            
-            // Pega o bloco atual na ordem original intocada
             let blocoAtual = blocos[i % blocos.length]; 
             
-            let tecladoBotoes = blocoAtual.map(grupo => {
+            // 🎲 1. Sorteia 2 links personalizados para o topo DESTA mensagem
+            const linksEmbaralhados = [...MEUS_LINKS_PERSONALIZADOS].sort(() => 0.5 - Math.random());
+            const topoPersonalizado = [
+                [{ text: linksEmbaralhados[0].titulo, url: linksEmbaralhados[0].url }],
+                [{ text: linksEmbaralhados[1].titulo, url: linksEmbaralhados[1].url }]
+            ];
+
+            // 👥 2. Monta os botões normais dos grupos
+            let botoesGrupos = blocoAtual.map(grupo => {
                 const urlSegura = (grupo.link && grupo.link.startsWith('http')) ? grupo.link : 'https://grupolink.site/';
                 return [{ text: `${getEmoji(getPeso(grupo))} ${grupo.name}`, url: urlSegura }];
             });
             
+            // 🔥 3. Junta tudo! Seus 2 links no topo + os 20 botões de grupos
+            let tecladoBotoes = [...topoPersonalizado, ...botoesGrupos];
+
+            // 🛑 4. Adiciona o rodapé padrão
             tecladoBotoes.push([
                 { text: '✅ Adicionar', url: `https://t.me/${botUsername}?startgroup=true` },
                 { text: '🌐 Lista Completa', url: 'https://grupolink.site/grupos-do-bot' }
