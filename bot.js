@@ -446,14 +446,13 @@ const MEUS_LINKS_PERSONALIZADOS = [
 ];
 
 // ==========================================
-// 7. MOTOR DE DIVULGAÇÃO (FILA INTERCALADA POR HORA)
+// 7. MOTOR DE DIVULGAÇÃO (ROTATIVIDADE VIP CORRIGIDA)
 // ==========================================
 
 // Trava de segurança: impede que o mesmo bot rode duas vezes ao mesmo tempo
 const emExecucao = { 0: false, 1: false, 2: false };
 
 async function rodarDivulgacao(botAtual, botIndex) {
-    // Se o bot já estiver divulgando (clonagem de cron), ele ignora
     if (emExecucao[botIndex]) {
         console.log(`⚠️ [AVISO] Bot ${botIndex + 1} já está em execução. Ignorando chamada duplicada.`);
         return;
@@ -480,79 +479,81 @@ async function rodarDivulgacao(botAtual, botIndex) {
             return 0; 
         };
 
-        // Mantido exatamente como o seu original (sem emojis visíveis)
         const getEmoji = (peso) => ['‍', '‍', '‍', '‍', '‍'][peso] || '‍';
 
         const alvosOrdenados = todosGrupos
             .map(g => ({ ...g, membros: g.member_count || 0 }))
             .sort((a, b) => b.membros - a.membros);
 
-        // VIPs ordenados pelo plano mais alto, Free embaralhados
-        const vipLinks = alvosOrdenados.filter(g => getPeso(g) > 0).sort((a, b) => getPeso(b) - getPeso(a));
-        const freeLinks = alvosOrdenados.filter(g => getPeso(g) === 0).sort(() => Math.random() - 0.5);
+        // 1. SEPARA VIPs E FREES
+        const vipLinks = alvosOrdenados.filter(g => getPeso(g) > 0);
+        const freeLinks = alvosOrdenados.filter(g => getPeso(g) === 0);
 
-        const blocos = [];
+        // 2. ORDENA POR PESO E EMBARALHA OS VIPS DO MESMO NÍVEL
+        vipLinks.sort((a, b) => {
+            const diffPeso = getPeso(b) - getPeso(a);
+            if (diffPeso !== 0) return diffPeso;
+            return Math.random() - 0.5; // Sorteia a ordem entre VIPs do mesmo plano (ex: Diamantes)
+        });
+
+        // 3. EMBARALHA OS GRUPOS GRATUITOS
+        freeLinks.sort(() => Math.random() - 0.5);
+
+        const botUsername = botAtual.botInfo ? botAtual.botInfo.username : 'divulga_parceiros_OFC_bot';
+        const textoMensagem = `💯 <b>Grupos do Telegram</b>\n\n✅ Entre em nosso site e aumente seu alcance: https://grupolink.site/\n\n🔥 <b>Adicione nossos bots no seu canal ou grupo:</b>\n🤖 @divulga_parceiros_OFC_bot\n🤖 @divulga_grupos_bot\n🤖 @divulgacao_de_links_bot`;
+        
+        let enviosComSucesso = 0;
         let vIndex = 0;
         let fIndex = 0;
         const TOTAL_POR_LISTA = 20;
-        const MAX_VIPS_POR_LISTA = 10; 
+        const MAX_VIPS_POR_LISTA = 10;
 
-        // Calcula quantas listas únicas precisamos gerar para cobrir todos os grupos
-        const totalListas = Math.max(1, Math.ceil(alvosOrdenados.length / TOTAL_POR_LISTA));
+        // 4. ENVIO MENSAGEM POR MENSAGEM
+        for (let i = 0; i < alvosOrdenados.length; i++) {
+            const target = alvosOrdenados[i];
 
-        // Monta as listas garantindo os VIPs SEMPRE no topo da lista de grupos
-        for (let i = 0; i < totalListas; i++) {
+            // A) Monta os VIPs com ROTAÇÃO CONTINUA (Round-Robin)
             let blocoVips = [];
-            
             if (vipLinks.length > 0) {
                 const qtdVipsNaLista = Math.min(MAX_VIPS_POR_LISTA, vipLinks.length);
                 for (let j = 0; j < qtdVipsNaLista; j++) {
-                    blocoVips.push(vipLinks[vIndex % vipLinks.length]);
-                    vIndex++;
+                    blocoVips.push(vipLinks[(vIndex + j) % vipLinks.length]);
+                }
+                // Se houver mais de 10 VIPs, avança o ponteiro para a próxima mensagem pegar o VIP seguinte
+                if (vipLinks.length > MAX_VIPS_POR_LISTA) {
+                    vIndex = (vIndex + 1) % vipLinks.length;
                 }
             }
 
+            // B) Preenche as vagas restantes com grupos Free
             let blocoFree = [];
             let vagasFree = TOTAL_POR_LISTA - blocoVips.length;
-            
-            if (freeLinks.length > 0) {
+            if (freeLinks.length > 0 && vagasFree > 0) {
                 for (let j = 0; j < vagasFree; j++) {
                     blocoFree.push(freeLinks[fIndex % freeLinks.length]);
                     fIndex++;
                 }
             }
 
-            let blocoFinal = [...blocoVips, ...blocoFree];
-            blocoFinal = [...new Set(blocoFinal)];
+            let blocoAtual = [...blocoVips, ...blocoFree];
 
-            if (blocoFinal.length > 0) blocos.push(blocoFinal);
-        }
-        const botUsername = botAtual.botInfo ? botAtual.botInfo.username : 'divulga_parceiros_OFC_bot';
-        const textoMensagem = `💯 <b>Grupos do Telegram</b>\n\n✅ Entre em nosso site e aumente seu alcance: https://grupolink.site/\n\n🔥 <b>Adicione nossos bots no seu canal ou grupo:</b>\n🤖 @divulga_parceiros_OFC_bot\n🤖 @divulga_grupos_bot\n🤖 @divulgacao_de_links_bot`;
-        
-        let enviosComSucesso = 0;
-
-        for (let i = 0; i < alvosOrdenados.length; i++) {
-            const target = alvosOrdenados[i];
-            let blocoAtual = blocos[i % blocos.length]; 
-            
-            // 🎲 1. Sorteia 2 links personalizados para o topo DESTA mensagem
+            // C) Sorteia seus 2 links fixos no topo
             const linksEmbaralhados = [...MEUS_LINKS_PERSONALIZADOS].sort(() => 0.5 - Math.random());
             const topoPersonalizado = [
                 [{ text: linksEmbaralhados[0].titulo, url: linksEmbaralhados[0].url }],
                 [{ text: linksEmbaralhados[1].titulo, url: linksEmbaralhados[1].url }]
             ];
 
-            // 👥 2. Monta os botões normais dos grupos
+            // D) Monta os botões dos grupos
             let botoesGrupos = blocoAtual.map(grupo => {
                 const urlSegura = (grupo.link && grupo.link.startsWith('http')) ? grupo.link : 'https://grupolink.site/';
                 return [{ text: `${getEmoji(getPeso(grupo))} ${grupo.name}`, url: urlSegura }];
             });
             
-            // 🔥 3. Junta tudo! Seus 2 links no topo + os 20 botões de grupos
+            // E) Junta o Topo + Grupos VIP/Free
             let tecladoBotoes = [...topoPersonalizado, ...botoesGrupos];
 
-            // 🛑 4. Adiciona o rodapé padrão
+            // F) Rodapé padrão
             tecladoBotoes.push([
                 { text: '✅ Adicionar', url: `https://t.me/${botUsername}?startgroup=true` },
                 { text: '🌐 Lista Completa', url: 'https://grupolink.site/grupos-do-bot' }
@@ -589,7 +590,7 @@ const cronsDeHorario = [
     '0 2,6,10,14,18,22 * * *' // Bot 3 (02:00, 06:00, 10:00...)
 ];
 
-// Impede o sistema de agendar os mesmos horários várias vezes caso o servidor reinicie
+// Impede o sistema de agendar os mesmos horários várias vezes
 if (!global.cronsRegistrados) {
     bots.forEach((botInstancia, index) => {
         if (cronsDeHorario[index]) {
@@ -597,7 +598,7 @@ if (!global.cronsRegistrados) {
                 rodarDivulgacao(botInstancia, index);
             }, {
                 scheduled: true,
-                timezone: "America/Sao_Paulo" // <--- Força o horário do Brasil
+                timezone: "America/Sao_Paulo"
             });
         }
     });
@@ -743,3 +744,23 @@ bot.action(/^pay_(bronze|silver|gold|diamond)_(.+)$/, async (ctx) => {
     }
 });
     } // Fim da função configurarBot
+
+// ==========================================
+// 12. SERVIDOR HTTP (EXIGIDO PELO RENDER E MERCADO PAGO)
+// ==========================================
+const app = express();
+app.use(express.json());
+
+// Rota para o Render checar que o bot está rodando
+app.get('/', (req, res) => {
+    res.send('🤖 Bot de Divulgação operando com sucesso!');
+});
+
+// Rota que recebe os avisos de PIX pago do Mercado Pago
+app.post('/webhook', handleWebhook);
+
+// Abre a porta que o Render fornece automaticamente
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🌐 Servidor HTTP ativo e rodando na porta ${PORT}`);
+});
