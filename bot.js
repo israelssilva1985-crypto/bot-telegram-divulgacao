@@ -446,10 +446,8 @@ const MEUS_LINKS_PERSONALIZADOS = [
 ];
 
 // ==========================================
-// 7. MOTOR DE DIVULGAÇÃO (ROTATIVIDADE VIP CORRIGIDA)
+// 7. MOTOR DE DIVULGAÇÃO (24 BOTÕES)
 // ==========================================
-
-// Trava de segurança: impede que o mesmo bot rode duas vezes ao mesmo tempo
 const emExecucao = { 0: false, 1: false, 2: false };
 
 async function rodarDivulgacao(botAtual, botIndex) {
@@ -485,18 +483,15 @@ async function rodarDivulgacao(botAtual, botIndex) {
             .map(g => ({ ...g, membros: g.member_count || 0 }))
             .sort((a, b) => b.membros - a.membros);
 
-        // 1. SEPARA VIPs E FREES
         const vipLinks = alvosOrdenados.filter(g => getPeso(g) > 0);
         const freeLinks = alvosOrdenados.filter(g => getPeso(g) === 0);
 
-        // 2. ORDENA POR PESO E EMBARALHA OS VIPS DO MESMO NÍVEL
         vipLinks.sort((a, b) => {
             const diffPeso = getPeso(b) - getPeso(a);
             if (diffPeso !== 0) return diffPeso;
-            return Math.random() - 0.5; // Sorteia a ordem entre VIPs do mesmo plano (ex: Diamantes)
+            return Math.random() - 0.5;
         });
 
-        // 3. EMBARALHA OS GRUPOS GRATUITOS
         freeLinks.sort(() => Math.random() - 0.5);
 
         const botUsername = botAtual.botInfo ? botAtual.botInfo.username : 'divulga_parceiros_OFC_bot';
@@ -505,29 +500,25 @@ async function rodarDivulgacao(botAtual, botIndex) {
         let enviosComSucesso = 0;
         let vIndex = 0;
         let fIndex = 0;
-        const TOTAL_POR_LISTA = 20;
+        const TOTAL_GRUPOS_POR_LISTA = 20; // 20 grupos no meio
         const MAX_VIPS_POR_LISTA = 10;
 
-        // 4. ENVIO MENSAGEM POR MENSAGEM
         for (let i = 0; i < alvosOrdenados.length; i++) {
             const target = alvosOrdenados[i];
 
-            // A) Monta os VIPs com ROTAÇÃO CONTINUA (Round-Robin)
             let blocoVips = [];
             if (vipLinks.length > 0) {
                 const qtdVipsNaLista = Math.min(MAX_VIPS_POR_LISTA, vipLinks.length);
                 for (let j = 0; j < qtdVipsNaLista; j++) {
                     blocoVips.push(vipLinks[(vIndex + j) % vipLinks.length]);
                 }
-                // Se houver mais de 10 VIPs, avança o ponteiro para a próxima mensagem pegar o VIP seguinte
                 if (vipLinks.length > MAX_VIPS_POR_LISTA) {
                     vIndex = (vIndex + 1) % vipLinks.length;
                 }
             }
 
-            // B) Preenche as vagas restantes com grupos Free
             let blocoFree = [];
-            let vagasFree = TOTAL_POR_LISTA - blocoVips.length;
+            let vagasFree = TOTAL_GRUPOS_POR_LISTA - blocoVips.length;
             if (freeLinks.length > 0 && vagasFree > 0) {
                 for (let j = 0; j < vagasFree; j++) {
                     blocoFree.push(freeLinks[fIndex % freeLinks.length]);
@@ -537,23 +528,35 @@ async function rodarDivulgacao(botAtual, botIndex) {
 
             let blocoAtual = [...blocoVips, ...blocoFree];
 
-            // C) Sorteia seus 2 links fixos no topo
+            // 🎲 EMBARALHA SEUS LINKS PERSONALIZADOS E RETIRA 4 LINKS DIVERSOS
             const linksEmbaralhados = [...MEUS_LINKS_PERSONALIZADOS].sort(() => 0.5 - Math.random());
+            
+            // 2 Links aleatórios para o TOPO
             const topoPersonalizado = [
                 [{ text: linksEmbaralhados[0].titulo, url: linksEmbaralhados[0].url }],
                 [{ text: linksEmbaralhados[1].titulo, url: linksEmbaralhados[1].url }]
             ];
 
-            // D) Monta os botões dos grupos
+            // 2 Links aleatórios para o RODAPÉ
+            const rodapePersonalizado = [
+                [{ text: linksEmbaralhados[2].titulo, url: linksEmbaralhados[2].url }],
+                [{ text: linksEmbaralhados[3].titulo, url: linksEmbaralhados[3].url }]
+            ];
+
+            // 20 Botões dos grupos (meio)
             let botoesGrupos = blocoAtual.map(grupo => {
                 const urlSegura = (grupo.link && grupo.link.startsWith('http')) ? grupo.link : 'https://grupolink.site/';
                 return [{ text: `${getEmoji(getPeso(grupo))} ${grupo.name}`, url: urlSegura }];
             });
             
-            // E) Junta o Topo + Grupos VIP/Free
-            let tecladoBotoes = [...topoPersonalizado, ...botoesGrupos];
+            // 🧱 JUNTA TUDO: 2 TOPO + 20 GRUPOS + 2 RODAPÉ = 24 BOTÕES
+            let tecladoBotoes = [
+                ...topoPersonalizado, 
+                ...botoesGrupos, 
+                ...rodapePersonalizado
+            ];
 
-            // F) Rodapé padrão
+            // Botões de utilidade do bot (Abaixo da mensagem)
             tecladoBotoes.push([
                 { text: '✅ Adicionar', url: `https://t.me/${botUsername}?startgroup=true` },
                 { text: '🌐 Lista Completa', url: 'https://grupolink.site/grupos-do-bot' }
@@ -566,10 +569,9 @@ async function rodarDivulgacao(botAtual, botIndex) {
                 await botAtual.telegram.pinChatMessage(target.telegram_chat_id, mensagemEnviada.message_id, { disable_notification: true }).catch(() => {});
                 enviosComSucesso++;
             } catch (err) {
-                // Ignora erros de permissão silenciosamente
+                // Erros ignorados silenciosamente
             }
             
-            // Pausa programada para evitar Rate Limit do Telegram
             await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
@@ -578,32 +580,8 @@ async function rodarDivulgacao(botAtual, botIndex) {
     } catch (error) {
         console.log(`❌ [ERRO] Falha geral no Bot ${botIndex + 1}:`, error);
     } finally {
-        // Libera o bot para a próxima hora
         emExecucao[botIndex] = false;
     }
-}
-
-// 🕒 Agendamento intercalado
-const cronsDeHorario = [
-    '0 0,4,8,12,16,20 * * *', // Bot 1 (00:00, 04:00, 08:00...)
-    '0 1,5,9,13,17,21 * * *', // Bot 2 (01:00, 05:00, 09:00...)
-    '0 2,6,10,14,18,22 * * *' // Bot 3 (02:00, 06:00, 10:00...)
-];
-
-// Impede o sistema de agendar os mesmos horários várias vezes
-if (!global.cronsRegistrados) {
-    bots.forEach((botInstancia, index) => {
-        if (cronsDeHorario[index]) {
-            cron.schedule(cronsDeHorario[index], () => {
-                rodarDivulgacao(botInstancia, index);
-            }, {
-                scheduled: true,
-                timezone: "America/Sao_Paulo"
-            });
-        }
-    });
-    global.cronsRegistrados = true;
-    console.log("⏰ [SISTEMA] Cronjobs registrados com sucesso no fuso horário do Brasil!");
 }
     
 // ==========================================
