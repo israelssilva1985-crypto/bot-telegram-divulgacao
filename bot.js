@@ -132,8 +132,11 @@ async function atualizarContagemMembros() {
     console.log('👥 [SISTEMA] Iniciando atualização da contagem de membros e links dos grupos...');
 
     try {
-        // Adicionado 'user_id' na seleção para podermos notificar o dono
-        const { data: grupos, error } = await supabase.from('groups').select('id, telegram_chat_id, name, user_id').eq('status', 'approved');
+        // Altere a busca para incluir 'removed' em vez de 'no_admin':
+const { data: grupos, error } = await supabase
+    .from('groups')
+    .select('id, telegram_chat_id, name, user_id')
+    .in('status', ['approved', 'removed']);
 
         if (error || !grupos) {
             console.error('❌ [ERRO] Falha ao buscar grupos para atualizar:', error?.message);
@@ -262,9 +265,9 @@ bot.action('meus_grupos', async (ctx) => {
     }
     
     const botoesGrupos = meusGrupos.map(g => {
-        const statusIcon = g.status === 'approved' ? '✅' : g.status === 'pending' ? '⏳' : g.status === 'removed' ? '⏸️' : '❌';
-        return [{ text: `${statusIcon} ${g.name}`, callback_data: `manage_${g.id}` }];
-    });
+    const statusIcon = g.status === 'approved' ? '✅' : g.status === 'pending' ? '⏳' : g.status === 'removed' ? '⚠️' : '❌';
+    return [{ text: `${statusIcon} ${g.name}`, callback_data: `manage_${g.id}` }];
+});
     
     botoesGrupos.push([{ text: '⬅️ Voltar ao Menu', callback_data: 'menu_principal' }]);
     
@@ -360,22 +363,37 @@ bot.on('my_chat_member', async (ctx) => {
     const newStatus = ctx.myChatMember.new_chat_member.status;
     const userId = ctx.from.id.toString();
 
-    // ROTA DE SAÍDA: O bot foi expulso ou perdeu admin
+    // ROTA DE SAÍDA / PERDA DE PERMISSÃO (Expulso, saiu ou perdeu admin)
     if (['kicked', 'left', 'member', 'restricted'].includes(newStatus)) {
-        console.log(`🚨 [ALERTA] Bot perdeu permissões no grupo: ${chat.title}. Mudando status para removed...`);
-        const { data: grupo } = await supabase.from('groups').select('user_id, name').eq('telegram_chat_id', chat.id.toString()).single();
+        console.log(`🚨 [ALERTA] Bot perdeu permissões/saiu do grupo: ${chat.title}. Alterando status para 'removed'...`);
+        
+        const { data: grupo } = await supabase
+            .from('groups')
+            .select('user_id, name')
+            .eq('telegram_chat_id', chat.id.toString())
+            .single();
 
         if (grupo) {
             await supabase.from('groups').update({ status: 'removed' }).eq('telegram_chat_id', chat.id.toString());
+            
+            // 1. Notifica no PV do responsável
             try {
-                const aviso = `⚠️ *ALERTA DE SISTEMA*\n\nFui removido ou perdi as minhas permissões de administrador no grupo/canal *${grupo.name}*!\n\nPor conta disso, a divulgação do seu grupo foi **PAUSADA** (Status: SUSPENSO).\n\n♻️ *Como resolver?*\nPara voltar a participar da divulgação, coloque-me novamente como Administrador. Eu detetarei automaticamente e voltarei a divulgar o seu link!`;
-                await bot.telegram.sendMessage(grupo.user_id, aviso, { parse_mode: 'Markdown' });
-            } catch(e) {}
+                const avisoPv = `⚠️ *ALERTA DE SISTEMA*\n\nPerdi as minhas permissões de **Administrador** no grupo/canal *${grupo.name}*!\n\nA divulgação foi **PAUSADA** (Status: SUSPENSO).\n\n♻️ *Como resolver?*\nPromova-me novamente como Administrador para reativar a divulgação automática!`;
+                await bot.telegram.sendMessage(grupo.user_id, avisoPv, { parse_mode: 'Markdown' });
+            } catch (e) {}
+
+            // 2. Se o bot ainda estiver no chat, notifica diretamente no grupo
+            if (['member', 'restricted'].includes(newStatus)) {
+                try {
+                    const userMention = `<a href="tg://user?id=${grupo.user_id}">${ctx.from.first_name || 'Admin'}</a>`;
+                    await ctx.replyWithHTML(`⚠️ ${userMention}, perdi as permissões de <b>Administrador</b>! A divulgação deste grupo foi <b>PAUSADA</b>.`).catch(() => {});
+                } catch (e) {}
+            }
         }
         return; 
     }
 
-    // ROTA DE ENTRADA: O bot virou admin
+    // ROTA DE ENTRADA (Promovido a Administrador)
     if (newStatus === 'administrator') {
         const username = ctx.from.username || ctx.from.first_name || 'Sem_Nome';
         await supabase.from('users').upsert({ telegram_id: userId, username: username }, { onConflict: 'telegram_id' });
@@ -387,7 +405,9 @@ bot.on('my_chat_member', async (ctx) => {
             try {
                 link = await ctx.exportChatInviteLink();
             } catch (err) {
-                try { await ctx.telegram.sendMessage(userId, `⚠️ *Atenção!*\n\nNão consegui ler o link de convite do grupo *${chat.title}*.\nPor favor, me dê a permissão de *"Convidar Usuários via Link"* nas configurações de administrador e adicione novamente.`, { parse_mode: 'Markdown' }); } catch(e){}
+                const msgErro = `⚠️ *Atenção!*\n\nNão consegui ler o link de convite do grupo *${chat.title}*.\nPor favor, conceda a permissão de *"Convidar Usuários via Link"* nas configurações de administrador.`;
+                try { await ctx.telegram.sendMessage(userId, msgErro, { parse_mode: 'Markdown' }); } catch (e) {}
+                try { await ctx.replyWithHTML(`⚠️ Preciso da permissão de <b>Convidar Usuários via Link</b> para operar!`).catch(() => {}); } catch (e) {}
                 return; 
             }
         }
@@ -397,30 +417,38 @@ bot.on('my_chat_member', async (ctx) => {
         if (existingGroup) {
             if (existingGroup.status === 'removed') {
                 await supabase.from('groups').update({ link: link, status: 'approved', user_id: userId }).eq('telegram_chat_id', chat.id.toString());
-                try { await ctx.telegram.sendMessage(userId, `✅ *BOM TRABALHO!*\n\nAs minhas permissões no grupo *${chat.title}* foram restauradas.\n\nStatus alterado para: 🟢 APROVADO.\nEle já voltou para a rotação de divulgação!`, { parse_mode: 'Markdown' }); } catch(e){}
+                
+                // Notificação no PV
+                try { await ctx.telegram.sendMessage(userId, `✅ *PERMISSÕES RESTAURADAS!*\n\nAs minhas permissões no grupo *${chat.title}* foram ativadas.\nStatus alterado para: 🟢 APROVADO.`, { parse_mode: 'Markdown' }); } catch(e){}
+                
+                // Notificação no Grupo
+                try {
+                    const userMention = `<a href="tg://user?id=${userId}">${ctx.from.first_name}</a>`;
+                    await ctx.replyWithHTML(`🎉 <b>Permissões Restauradas!</b>\n\n${userMention}, o grupo <b>${chat.title}</b> retornou com sucesso para a rotação de divulgação!`).catch(() => {});
+                } catch(e){}
             } 
             else if (existingGroup.status === 'pending') {
-                // Alterado para avisar no grupo, pois a pessoa pode não ter iniciado o PV deste bot específico
-                try { await ctx.replyWithHTML(`ℹ️ Olá! Notei que este grupo já está <b>aguardando aprovação</b> no nosso sistema por outro bot da rede. Em breve será avaliado!`).catch(()=>null); } catch(e){}
+                try { await ctx.replyWithHTML(`ℹ️ Olá! Este grupo já está <b>aguardando aprovação</b> no nosso sistema. Em breve será avaliado!`).catch(()=>null); } catch(e){}
             }
             else if (existingGroup.status === 'approved') {
-                // 🔥 A MÁGICA DA AUTO-APROVAÇÃO FICA AQUI:
-                try { await ctx.replyWithHTML(`🎉 <b>Auto-Aprovado!</b>\n\nEste grupo já faz parte da nossa rede de parceiros! Como já foi aprovado anteriormente, eu já estou pronto para começar as divulgações aqui.`).catch(()=>null); } catch(e){}
+                try { await ctx.replyWithHTML(`🎉 <b>Auto-Aprovado!</b>\n\nEste grupo já faz parte da nossa rede de parceiros!`).catch(()=>null); } catch(e){}
             }
         } else {
             const { error } = await supabase.from('groups').insert([{ user_id: userId, telegram_chat_id: chat.id.toString(), name: chat.title, link: link, status: 'pending' }]);
 
             if (!error) {
                 console.log(`✅ [INFO] Grupo ${chat.title} cadastrado e pendente de aprovação.`);
+                const userMention = `<a href="tg://user?id=${userId}">${ctx.from.first_name}</a>`;
+                
                 try {
-                    await ctx.telegram.sendMessage(userId, `✅ Sucesso! Detectei que você me adicionou como Admin em:\n*${chat.title}*\n\nStatus: ⏳ Pendente de Aprovação.\nFique de olho, avisarei por aqui quando for aprovado!`, { parse_mode: 'Markdown' });
-                } catch (err) {
-                    try {
-                        const botUsername = ctx.botInfo.username;
-                        const avisoGrupo = `✅ **Fui ativado com sucesso!**\n\n[${username}](tg://user?id=${userId}), o seu grupo foi cadastrado e está ⏳ **Pendente de Aprovação**.\n\n👉 Por favor, clique aqui: @${botUsername} e aperte em **COMEÇAR** para ter acesso ao painel do seu grupo e receber os avisos!`;
-                        await ctx.telegram.sendMessage(chat.id, avisoGrupo, { parse_mode: 'Markdown' });
-                    } catch (e) {}
-                }
+                    await ctx.telegram.sendMessage(userId, `✅ Sucesso! Detectei que você me adicionou como Admin em:\n*${chat.title}*\n\nStatus: ⏳ Pendente de Aprovação.`, { parse_mode: 'Markdown' });
+                } catch (err) {}
+
+                try {
+                    const botUsername = ctx.botInfo.username;
+                    const avisoGrupo = `✅ <b>Fui ativado com sucesso!</b>\n\n${userMention}, o seu grupo foi cadastrado e está ⏳ <b>Pendente de Aprovação</b>.\n\n👉 Clique em @${botUsername} e aperte em <b>COMEÇAR</b> para ter acesso ao painel do seu grupo!`;
+                    await ctx.replyWithHTML(avisoGrupo).catch(() => {});
+                } catch (e) {}
             }
         }
     }
@@ -446,8 +474,10 @@ const MEUS_LINKS_PERSONALIZADOS = [
 ];
 
 // ==========================================
-// 7. MOTOR DE DIVULGAÇÃO (24 BOTÕES)
+// 7. MOTOR DE DIVULGAÇÃO (24 BOTÕES + AGENDAMENTO CRON)
 // ==========================================
+
+// Trava de segurança: impede que o mesmo bot rode duas vezes ao mesmo tempo
 const emExecucao = { 0: false, 1: false, 2: false };
 
 async function rodarDivulgacao(botAtual, botIndex) {
@@ -460,13 +490,20 @@ async function rodarDivulgacao(botAtual, botIndex) {
     try {
         console.log(`🔄 [SISTEMA] Iniciando rotina de postagem para o Bot ${botIndex + 1}...`);
         
-        const { data: todosGrupos, error: errTop } = await supabase.from('groups').select('*').eq('status', 'approved');
+        // Busca todos os grupos para RECEBER a mensagem (aprovados + removed)
+        const { data: todosGrupos, error: errTop } = await supabase
+            .from('groups')
+            .select('*')
+            .in('status', ['approved', 'removed']);
 
         if (errTop || !todosGrupos || todosGrupos.length === 0) {
-            console.log(`⚠️ [INFO] Bot ${botIndex + 1}: Nenhum grupo aprovado encontrado.`);
+            console.log(`⚠️ [INFO] Bot ${botIndex + 1}: Nenhum grupo encontrado.`);
             emExecucao[botIndex] = false;
             return;
         }
+
+        // Apenas grupos APROVADOS entram para a lista de BOTÕES
+        const gruposParaDivulgar = todosGrupos.filter(g => g.status === 'approved');
 
         const getPeso = (grupo) => {
             const plano = (grupo.plan || grupo.boost_tier || '').toLowerCase();
@@ -477,9 +514,11 @@ async function rodarDivulgacao(botAtual, botIndex) {
             return 0; 
         };
 
+        // Mantido sem inserção de emojis
         const getEmoji = (peso) => ['‍', '‍', '‍', '‍', '‍'][peso] || '‍';
 
-        const alvosOrdenados = todosGrupos
+        // Ordena apenas os aprovados por quantidade de membros
+        const alvosOrdenados = gruposParaDivulgar
             .map(g => ({ ...g, membros: g.member_count || 0 }))
             .sort((a, b) => b.membros - a.membros);
 
@@ -500,11 +539,12 @@ async function rodarDivulgacao(botAtual, botIndex) {
         let enviosComSucesso = 0;
         let vIndex = 0;
         let fIndex = 0;
-        const TOTAL_GRUPOS_POR_LISTA = 20; // 20 grupos no meio
+        const TOTAL_GRUPOS_POR_LISTA = 20; 
         const MAX_VIPS_POR_LISTA = 10;
 
-        for (let i = 0; i < alvosOrdenados.length; i++) {
-            const target = alvosOrdenados[i];
+        // O loop varre todosGrupos (para que os 'removed' também recebam a mensagem cobrando admin)
+        for (let i = 0; i < todosGrupos.length; i++) {
+            const target = todosGrupos[i];
 
             let blocoVips = [];
             if (vipLinks.length > 0) {
@@ -528,35 +568,29 @@ async function rodarDivulgacao(botAtual, botIndex) {
 
             let blocoAtual = [...blocoVips, ...blocoFree];
 
-            // 🎲 EMBARALHA SEUS LINKS PERSONALIZADOS E RETIRA 4 LINKS DIVERSOS
             const linksEmbaralhados = [...MEUS_LINKS_PERSONALIZADOS].sort(() => 0.5 - Math.random());
             
-            // 2 Links aleatórios para o TOPO
             const topoPersonalizado = [
                 [{ text: linksEmbaralhados[0].titulo, url: linksEmbaralhados[0].url }],
                 [{ text: linksEmbaralhados[1].titulo, url: linksEmbaralhados[1].url }]
             ];
 
-            // 2 Links aleatórios para o RODAPÉ
             const rodapePersonalizado = [
                 [{ text: linksEmbaralhados[2].titulo, url: linksEmbaralhados[2].url }],
                 [{ text: linksEmbaralhados[3].titulo, url: linksEmbaralhados[3].url }]
             ];
 
-            // 20 Botões dos grupos (meio)
             let botoesGrupos = blocoAtual.map(grupo => {
                 const urlSegura = (grupo.link && grupo.link.startsWith('http')) ? grupo.link : 'https://grupolink.site/';
-                return [{ text: `${getEmoji(getPeso(grupo))} ${grupo.name}`, url: urlSegura }];
+                return [{ text: `${getEmoji(getPeso(grupo))}${grupo.name}`, url: urlSegura }];
             });
             
-            // 🧱 JUNTA TUDO: 2 TOPO + 20 GRUPOS + 2 RODAPÉ = 24 BOTÕES
             let tecladoBotoes = [
                 ...topoPersonalizado, 
                 ...botoesGrupos, 
                 ...rodapePersonalizado
             ];
 
-            // Botões de utilidade do bot (Abaixo da mensagem)
             tecladoBotoes.push([
                 { text: '✅ Adicionar', url: `https://t.me/${botUsername}?startgroup=true` },
                 { text: '🌐 Lista Completa', url: 'https://grupolink.site/grupos-do-bot' }
@@ -569,7 +603,13 @@ async function rodarDivulgacao(botAtual, botIndex) {
                 await botAtual.telegram.pinChatMessage(target.telegram_chat_id, mensagemEnviada.message_id, { disable_notification: true }).catch(() => {});
                 enviosComSucesso++;
             } catch (err) {
-                // Erros ignorados silenciosamente
+                const erroMsg = err.response ? err.response.description : err.message;
+                
+                // AUTO-LIMPEZA: Se o grupo caiu ou o bot foi expulso, deleta do banco imediatamente
+                if (erroMsg && (erroMsg.includes("chat not found") || erroMsg.includes("kicked") || erroMsg.includes("bot was blocked") || erroMsg.includes("not a member"))) {
+                    console.log(`🧹 [AUTO-LIMPEZA] Deletando grupo inacessível: ${target.name} (ID: ${target.telegram_chat_id})`);
+                    await supabase.from('groups').delete().eq('id', target.id);
+                }
             }
             
             await new Promise(resolve => setTimeout(resolve, 3000));
@@ -582,6 +622,30 @@ async function rodarDivulgacao(botAtual, botIndex) {
     } finally {
         emExecucao[botIndex] = false;
     }
+}
+
+// ==========================================
+// AGENDAMENTO CRON (INTERCALADO)
+// ==========================================
+const cronsDeHorario = [
+    '0 0,4,8,12,16,20 * * *', // Bot 1 (00:00, 04:00, 08:00...)
+    '0 1,5,9,13,17,21 * * *', // Bot 2 (01:00, 05:00, 09:00...)
+    '0 2,6,10,14,18,22 * * *'  // Bot 3 (02:00, 06:00, 10:00...)
+];
+
+if (!global.cronsRegistrados) {
+    bots.forEach((botInstancia, index) => {
+        if (cronsDeHorario[index]) {
+            cron.schedule(cronsDeHorario[index], () => {
+                rodarDivulgacao(botInstancia, index);
+            }, {
+                scheduled: true,
+                timezone: "America/Sao_Paulo"
+            });
+        }
+    });
+    global.cronsRegistrados = true;
+    console.log("⏰ [SISTEMA] Cronjobs registrados com sucesso no fuso horário do Brasil!");
 }
     
 // ==========================================
