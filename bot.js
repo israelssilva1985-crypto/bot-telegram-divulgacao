@@ -474,10 +474,9 @@ const MEUS_LINKS_PERSONALIZADOS = [
 ];
 
 // ==========================================
-// 7. MOTOR DE DIVULGAÇÃO (24 BOTÕES + AGENDAMENTO CRON)
+// 7. MOTOR DE DIVULGAÇÃO (100% SEGURO - APENAS LEITURA)
 // ==========================================
 
-// Trava de segurança: impede que o mesmo bot rode duas vezes ao mesmo tempo
 const emExecucao = { 0: false, 1: false, 2: false };
 
 async function rodarDivulgacao(botAtual, botIndex) {
@@ -490,7 +489,7 @@ async function rodarDivulgacao(botAtual, botIndex) {
     try {
         console.log(`🔄 [SISTEMA] Iniciando rotina de postagem para o Bot ${botIndex + 1}...`);
         
-        // Busca todos os grupos para RECEBER a mensagem (aprovados + removed)
+        // Apenas busca no banco (sem alterar nada)
         const { data: todosGrupos, error: errTop } = await supabase
             .from('groups')
             .select('*')
@@ -502,7 +501,7 @@ async function rodarDivulgacao(botAtual, botIndex) {
             return;
         }
 
-        // Apenas grupos APROVADOS entram para a lista de BOTÕES
+        // Separa apenas os aprovados para montagem dos botões
         const gruposParaDivulgar = todosGrupos.filter(g => g.status === 'approved');
 
         const getPeso = (grupo) => {
@@ -514,10 +513,8 @@ async function rodarDivulgacao(botAtual, botIndex) {
             return 0; 
         };
 
-        // Mantido sem inserção de emojis
         const getEmoji = (peso) => ['‍', '‍', '‍', '‍', '‍'][peso] || '‍';
 
-        // Ordena apenas os aprovados por quantidade de membros
         const alvosOrdenados = gruposParaDivulgar
             .map(g => ({ ...g, membros: g.member_count || 0 }))
             .sort((a, b) => b.membros - a.membros);
@@ -542,7 +539,6 @@ async function rodarDivulgacao(botAtual, botIndex) {
         const TOTAL_GRUPOS_POR_LISTA = 20; 
         const MAX_VIPS_POR_LISTA = 10;
 
-        // O loop varre todosGrupos (para que os 'removed' também recebam a mensagem cobrando admin)
         for (let i = 0; i < todosGrupos.length; i++) {
             const target = todosGrupos[i];
 
@@ -567,7 +563,6 @@ async function rodarDivulgacao(botAtual, botIndex) {
             }
 
             let blocoAtual = [...blocoVips, ...blocoFree];
-
             const linksEmbaralhados = [...MEUS_LINKS_PERSONALIZADOS].sort(() => 0.5 - Math.random());
             
             const topoPersonalizado = [
@@ -604,18 +599,14 @@ async function rodarDivulgacao(botAtual, botIndex) {
                 enviosComSucesso++;
             } catch (err) {
                 const erroMsg = err.response ? err.response.description : err.message;
-                
-                // AUTO-LIMPEZA: Se o grupo caiu ou o bot foi expulso, deleta do banco imediatamente
-                if (erroMsg && (erroMsg.includes("chat not found") || erroMsg.includes("kicked") || erroMsg.includes("bot was blocked") || erroMsg.includes("not a member"))) {
-                    console.log(`🧹 [AUTO-LIMPEZA] Deletando grupo inacessível: ${target.name} (ID: ${target.telegram_chat_id})`);
-                    await supabase.from('groups').delete().eq('id', target.id);
-                }
+                // APENAS REGISTRA O ERRO NO CONSOLE. NENHUM REGISTRO É APAGADO OU MODIFICADO NO BANCO.
+                console.log(`⚠️ [AVISO DE ENVIO] Falha no grupo ${target.name} (ID: ${target.telegram_chat_id}): ${erroMsg}`);
             }
             
             await new Promise(resolve => setTimeout(resolve, 3000));
         }
 
-        console.log(`✅ [SUCESSO] Divulgação Bot ${botIndex + 1} concluída! ${enviosComSucesso} grupos atualizados.`);
+        console.log(`✅ [SUCESSO] Divulgação Bot ${botIndex + 1} concluída! ${enviosComSucesso} envios realizados.`);
     
     } catch (error) {
         console.log(`❌ [ERRO] Falha geral no Bot ${botIndex + 1}:`, error);
