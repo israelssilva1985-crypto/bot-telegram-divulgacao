@@ -469,7 +469,7 @@ const MEUS_LINKS_PERSONALIZADOS = [
     { titulo: 'CASA NOVA DISTRIBUINDO MUITOO💸', url: 'https://234vip38.com/?pid=513549461' },
     { titulo: 'BONUS 24 HORAS', url: 'https://ydrgl3.com/?pid=3468467757' },
     { titulo: 'NOVA CHINESA BUGADA🇨🇳🤑', url: 'https://rt9p87.com/?pid=2540232740' },
-    { titulo: 'SAQUE MINIMO 10 REAIS🔥', url: 'https://www.6gbet1.com/?id=965858595' },
+    { titulo: 'SAQUE MINIMO 10 REAIS🔥', url: 'https://75cc12.com/?pid=3881404916' },
     { titulo: 'PAGANDO COM BANCA BAIXA💰', url: 'http://wdbz8e.com/?pid=3946842948' }
 ];
 
