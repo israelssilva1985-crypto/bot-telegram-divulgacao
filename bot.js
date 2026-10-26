@@ -459,18 +459,20 @@ bot.on('my_chat_member', async (ctx) => {
 // ==========================================
 // Edite os títulos e as URLs aqui. Você pode usar emojis livremente!
 const MEUS_LINKS_PERSONALIZADOS = [
-    { titulo: 'PLATAFORMA PAGANDO 🔥📈', url: 'https://98a5.xyz/?pid=1425253988' },
-    { titulo: 'DEPOSITO SOMENTE 5 REAIS⬇️💵', url: 'http://wdbz8e.com/?pid=3946842948' },
-    { titulo: 'PAGANDO FORTUNE TIGER🐯💸', url: 'https://838x1.com/?pid=4138194760' },
-    { titulo: 'BONUS NO CADASTRO🎁', url: 'https://76p11.com/?a=9pwvvbwm' },
-    { titulo: 'CHINESA NOVA DISTRIBUINDO MUITOO🇨🇳💸', url: 'https://30win104.com/?id=846395032' },
-    { titulo: 'PLATAFORMA BUGADA🤑', url: 'https://G45004.com/?pid=4258938277' },
-    { titulo: 'RTP ALTO NO FORTUNE SNAKE🐍', url: 'https://9bm.cloud/?pid=1411406752' },
-    { titulo: 'CASA NOVA DISTRIBUINDO MUITOO💸', url: 'https://234vip37.com/?pid=645762014' },
-    { titulo: 'BONUS 24 HORAS', url: 'https://ydrgl3.com/?pid=3468467757' },
-    { titulo: 'NOVA CHINESA BUGADA🇨🇳🤑', url: 'https://rt9p87.com/?pid=2540232740' },
-    { titulo: 'SAQUE MINIMO 10 REAIS🔥', url: 'https://75cc12.com/?pid=3881404916' },
-    { titulo: 'PAGANDO COM BANCA BAIXA💰', url: 'http://wdbz8e.com/?pid=3946842948' }
+    { titulo: 'BRECHA LIBERADA HOJE 🚨🎰', url: 'https://98a5.xyz/?pid=1425253988' },
+    { titulo: 'SAQUE PIX INSTANTÂNEO ⚡💸', url: 'http://wdbz8e.com/?pid=3946842948' },
+    { titulo: 'CADASTROU, GANHOU NO PIX 🎁😱', url: 'https://838x1.com/?pid=4138194760' },
+    { titulo: 'NOVA PLATAFORMA SECRETA 🤫🔥', url: 'https://76p11.com/?a=9pwvvbwm' },
+    { titulo: 'NOVO BUG DO TIGRE 🐯💥', url: 'https://30win104.com/?id=846395032' },
+    { titulo: 'DEPÓSITO DE APENAS 5 REAIS 🪙🚀', url: 'https://G45004.com/?pid=4258938277' },
+    { titulo: 'GRINGA PAGANDO MAIS QUE AS CHINESAS 📈👀', url: 'https://9bm.cloud/?pid=1411406752' },
+    { titulo: 'TESTE ANTES QUE CORRIJAM ⏳🚨', url: 'https://234vip37.com/?pid=645762014' },
+    { titulo: 'CHINESA SEM LIMITES DE SAQUE 🇨🇳💰', url: 'https://ydrgl3.com/?pid=3468467757' },
+    { titulo: 'BÔNUS DE BOAS-VINDAS SEM DEPÓSITO 🎟️🤑', url: 'https://rt9p87.com/?pid=2540232740' },
+    { titulo: 'MULTIPLICADOR MÁXIMO ATIVADO 💣🔥', url: 'https://75cc12.com/?pid=3881404916' },
+    { titulo: 'PLATAFORMA DO DRAGÃO SOLTANDO 🐉💸', url: 'https://5kkk07.com/?pid=6600386280' },
+    { titulo: 'RODADAS GRÁTIS LIBERADAS 🎰🎁', url: 'https://79p003.com/?pid=6366853274' },
+    { titulo: 'BANCA BAIXA MULTIPLICANDO RÁPIDO 📊💵', url: 'https://ff345.org/?pid=1438668279' }
 ];
 
 // ==========================================
