@@ -1,4 +1,4 @@
-﻿import { Telegraf } from 'telegraf';
+import { Telegraf } from 'telegraf';
 import cron from 'node-cron';
 import { supabase } from './db.js';
 import dotenv from 'dotenv';
@@ -31,8 +31,6 @@ bots.forEach((botInstancia, index) => {
             const chatId = err.on && err.on.payload ? err.on.payload.chat_id : null;
             
             if (chatId) {
-                // ⚠️ ATENÇÃO: Confirme se o nome da sua tabela é 'grupos' ou 'groups' 
-                // e se a coluna do ID é 'telegram_chat_id' no seu Supabase.
                 const { error } = await supabase.from('groups').delete().eq('telegram_chat_id', chatId);
                 
                 if (error) {
@@ -106,7 +104,6 @@ cron.schedule('0 0 * * *', async () => {
             return;
         }
 
-        // Deleta todos de uma vez (Batch Delete) para poupar processamento
         const idsParaDeletar = gruposParaDeletar.map(g => g.id);
         
         await supabase.from('boost_history').delete().in('group_id', idsParaDeletar);
@@ -132,11 +129,10 @@ async function atualizarContagemMembros() {
     console.log('👥 [SISTEMA] Iniciando atualização da contagem de membros e links dos grupos...');
 
     try {
-        // Altere a busca para incluir 'removed' em vez de 'no_admin':
-const { data: grupos, error } = await supabase
-    .from('groups')
-    .select('id, telegram_chat_id, name, user_id')
-    .in('status', ['approved', 'removed']);
+        const { data: grupos, error } = await supabase
+            .from('groups')
+            .select('id, telegram_chat_id, name, user_id')
+            .in('status', ['approved', 'removed']);
 
         if (error || !grupos) {
             console.error('❌ [ERRO] Falha ao buscar grupos para atualizar:', error?.message);
@@ -169,20 +165,17 @@ const { data: grupos, error } = await supabase
                         
                         atualizados++;
                         infoAtualizada = true;
-                        break; // Se um bot conseguiu, para de tentar os outros e vai pro próximo grupo
+                        break;
                     } catch (err) {
-                        continue; // Falhou, tenta o próximo bot
+                        continue;
                     }
                 }
                 
-                // Se nenhum bot conseguiu acesso, o grupo caiu ou o bot perdeu permissão
                 if (!infoAtualizada) {
                     console.log(`⚠️ [AVISO] Sem acesso ao grupo: ${grupo.name}. Alterando status para 'removed'.`);
                     
-                    // Atualiza o status para 'removed' no banco
                     await supabase.from('groups').update({ status: 'removed' }).eq('id', grupo.id);
 
-                    // Tenta avisar o dono no privado
                     if (grupo.user_id) {
                         try {
                             const aviso = `⚠️ *Atenção!*\n\nNão consegui acessar os dados do seu grupo/canal *${grupo.name}* (provavelmente perdi as permissões de administrador ou o link expirou).\n\nPor conta disso, a divulgação do grupo foi **PAUSADA**.\n\nPara voltar à rotação de divulgação, adicione-me novamente como administrador com as permissões corretas!`;
@@ -196,7 +189,7 @@ const { data: grupos, error } = await supabase
             } catch (err) {
                 console.error(`❌ [ERRO] Falha no grupo ${grupo.name}:`, err.message);
             }
-            await sleep(1500); // Delay de segurança
+            await sleep(1500);
         }
 
         console.log(`✅ [SUCESSO] Atualização concluída! ${atualizados} grupos tiveram links e membros renovados.`);
@@ -241,7 +234,6 @@ bot.start(async (ctx) => {
                 }
             });
         } catch (err) {
-            // Se o usuário bloqueou o bot DEPOIS de dar start ou deu erro de rede, o catch segura a bronca
             console.error(`❌ [ERRO /start] Falha ao processar start de ${ctx.from.first_name}:`, err.message);
         }
     }
@@ -363,7 +355,6 @@ bot.on('my_chat_member', async (ctx) => {
     const newStatus = ctx.myChatMember.new_chat_member.status;
     const userId = ctx.from.id.toString();
 
-    // ROTA DE SAÍDA / PERDA DE PERMISSÃO (Expulso, saiu ou perdeu admin)
     if (['kicked', 'left', 'member', 'restricted'].includes(newStatus)) {
         console.log(`🚨 [ALERTA] Bot perdeu permissões/saiu do grupo: ${chat.title}. Alterando status para 'removed'...`);
         
@@ -376,13 +367,11 @@ bot.on('my_chat_member', async (ctx) => {
         if (grupo) {
             await supabase.from('groups').update({ status: 'removed' }).eq('telegram_chat_id', chat.id.toString());
             
-            // 1. Notifica no PV do responsável
             try {
                 const avisoPv = `⚠️ *ALERTA DE SISTEMA*\n\nPerdi as minhas permissões de **Administrador** no grupo/canal *${grupo.name}*!\n\nA divulgação foi **PAUSADA** (Status: SUSPENSO).\n\n♻️ *Como resolver?*\nPromova-me novamente como Administrador para reativar a divulgação automática!`;
                 await bot.telegram.sendMessage(grupo.user_id, avisoPv, { parse_mode: 'Markdown' });
             } catch (e) {}
 
-            // 2. Se o bot ainda estiver no chat, notifica diretamente no grupo
             if (['member', 'restricted'].includes(newStatus)) {
                 try {
                     const userMention = `<a href="tg://user?id=${grupo.user_id}">${ctx.from.first_name || 'Admin'}</a>`;
@@ -393,7 +382,6 @@ bot.on('my_chat_member', async (ctx) => {
         return; 
     }
 
-    // ROTA DE ENTRADA (Promovido a Administrador)
     if (newStatus === 'administrator') {
         const username = ctx.from.username || ctx.from.first_name || 'Sem_Nome';
         await supabase.from('users').upsert({ telegram_id: userId, username: username }, { onConflict: 'telegram_id' });
@@ -418,10 +406,8 @@ bot.on('my_chat_member', async (ctx) => {
             if (existingGroup.status === 'removed') {
                 await supabase.from('groups').update({ link: link, status: 'approved', user_id: userId }).eq('telegram_chat_id', chat.id.toString());
                 
-                // Notificação no PV
                 try { await ctx.telegram.sendMessage(userId, `✅ *PERMISSÕES RESTAURADAS!*\n\nAs minhas permissões no grupo *${chat.title}* foram ativadas.\nStatus alterado para: 🟢 APROVADO.`, { parse_mode: 'Markdown' }); } catch(e){}
                 
-                // Notificação no Grupo
                 try {
                     const userMention = `<a href="tg://user?id=${userId}">${ctx.from.first_name}</a>`;
                     await ctx.replyWithHTML(`🎉 <b>Permissões Restauradas!</b>\n\n${userMention}, o grupo <b>${chat.title}</b> retornou com sucesso para a rotação de divulgação!`).catch(() => {});
@@ -455,9 +441,33 @@ bot.on('my_chat_member', async (ctx) => {
 });
 
 // ==========================================
-// 🔗 SEUS 12 LINKS PERSONALIZADOS (NO TOPO)
+// 🔞 BOTÃO FIXO NO TOPO ABSOLUTO (PRIVACY)
 // ==========================================
-// Edite os títulos e as URLs aqui. Você pode usar emojis livremente!
+// Coloque o link do seu Privacy abaixo. As frases vão alternar a cada envio!
+const CONFIG_PRIVACY = {
+    url: 'https://privacy.com.br/profile/lanairezende',
+    frases: [
+        '🔥 CONTEÚDO EXCLUSIVO NO PRIVACY 🔞',
+        '🤫 VÍDEOS SEM CENSURA AQUI 👀🔥',
+        '💋 ACESSE MEU PRIVACY AGORA 😈',
+        '🚨 PRÉVIAS LIBERADAS NO PRIVACY 🔥',
+        '🔞 TUDO QUE NÃO POSSO POSTAR AQUI 🤫',
+        '💎 ASSINE MEU PRIVACY COM DESCONTO 💸',
+        '🔥 NOVIDADES QUENTES NO PRIVACY 🌶️',
+        '👀 VEM VER MEUS VÍDEOS EXCLUSIVOS 💋',
+        '😈 CONTEÚDO PROIBIDO NO TELEGRAM 🔞',
+        '⚡ ACESSO IMEDIATO AO MEU PRIVACY 🔥',
+        '📸 FOTOS E VÍDEOS NOVOS HOJE 💦',
+        '🎁 PROMOÇÃO RELÂMPAGO NO PRIVACY 🚨',
+        '🌶️ O MELHOR CONTEÚDO ESTÁ AQUI 👇🔥',
+        '🔒 MEU CANAL VIP NO PRIVACY 💋',
+        '💥 NÃO CLIQUE SE FOR CURIOSO(A) 👀🔞'
+    ]
+};
+
+// ==========================================
+// 🔗 SEUS 14 LINKS PERSONALIZADOS (LOGO ABAIXO DO PRIVACY)
+// ==========================================
 const MEUS_LINKS_PERSONALIZADOS = [
     { titulo: 'BRECHA LIBERADA HOJE 🚨🎰', url: 'https://98a5.xyz/?pid=1425253988' },
     { titulo: 'SAQUE PIX INSTANTÂNEO ⚡💸', url: 'http://wdbz8e.com/?pid=3946842948' },
@@ -491,7 +501,6 @@ async function rodarDivulgacao(botAtual, botIndex) {
     try {
         console.log(`🔄 [SISTEMA] Iniciando rotina de postagem para o Bot ${botIndex + 1}...`);
         
-        // Apenas busca no banco (sem alterar nada)
         const { data: todosGrupos, error: errTop } = await supabase
             .from('groups')
             .select('*')
@@ -503,7 +512,6 @@ async function rodarDivulgacao(botAtual, botIndex) {
             return;
         }
 
-        // Separa apenas os aprovados para montagem dos botões
         const gruposParaDivulgar = todosGrupos.filter(g => g.status === 'approved');
 
         const getPeso = (grupo) => {
@@ -538,6 +546,8 @@ async function rodarDivulgacao(botAtual, botIndex) {
         let enviosComSucesso = 0;
         let vIndex = 0;
         let fIndex = 0;
+        // Começa em uma frase aleatória e vai alternando uma por uma sem repetir na sequência
+        let privacyIndex = Math.floor(Math.random() * CONFIG_PRIVACY.frases.length);
         const TOTAL_GRUPOS_POR_LISTA = 20; 
         const MAX_VIPS_POR_LISTA = 10;
 
@@ -567,6 +577,14 @@ async function rodarDivulgacao(botAtual, botIndex) {
             let blocoAtual = [...blocoVips, ...blocoFree];
             const linksEmbaralhados = [...MEUS_LINKS_PERSONALIZADOS].sort(() => 0.5 - Math.random());
             
+            // Seleciona a próxima frase do Privacy e avança o contador
+            const frasePrivacyAtual = CONFIG_PRIVACY.frases[privacyIndex % CONFIG_PRIVACY.frases.length];
+            privacyIndex++;
+
+            const botaoPrivacyTopo = [
+                { text: frasePrivacyAtual, url: CONFIG_PRIVACY.url }
+            ];
+
             const topoPersonalizado = [
                 [{ text: linksEmbaralhados[0].titulo, url: linksEmbaralhados[0].url }],
                 [{ text: linksEmbaralhados[1].titulo, url: linksEmbaralhados[1].url }]
@@ -583,9 +601,10 @@ async function rodarDivulgacao(botAtual, botIndex) {
             });
             
             let tecladoBotoes = [
-                ...topoPersonalizado, 
-                ...botoesGrupos, 
-                ...rodapePersonalizado
+                botaoPrivacyTopo,      // 1º: Sempre no topo absoluto acima de tudo
+                ...topoPersonalizado,  // 2º: Seus 2 links sorteados
+                ...botoesGrupos,       // 3º: Grupos VIPs e Free
+                ...rodapePersonalizado // 4º: Seus 2 links no rodapé
             ];
 
             tecladoBotoes.push([
@@ -601,7 +620,6 @@ async function rodarDivulgacao(botAtual, botIndex) {
                 enviosComSucesso++;
             } catch (err) {
                 const erroMsg = err.response ? err.response.description : err.message;
-                // APENAS REGISTRA O ERRO NO CONSOLE. NENHUM REGISTRO É APAGADO OU MODIFICADO NO BANCO.
                 console.log(`⚠️ [AVISO DE ENVIO] Falha no grupo ${target.name} (ID: ${target.telegram_chat_id}): ${erroMsg}`);
             }
             
@@ -657,7 +675,7 @@ supabase.channel('mudancas-de-status')
                     } else if (statusNovo === 'rejected') {
                         await botAtual.telegram.sendMessage(userId, `❌ *Aviso!*\n\nSeu grupo/canal *${nomeGrupo}* foi **REJEITADO** no nosso sistema.`, { parse_mode: 'Markdown' });
                     }
-                    break; // Enviou com um bot? Pode parar.
+                    break;
                 } catch (err) {
                     continue;
                 }
@@ -666,35 +684,33 @@ supabase.channel('mudancas-de-status')
     }).subscribe();
 
 bot.on('new_chat_members', async (ctx) => {
-    try {
-        if (ctx.message.new_chat_members.some(m => m.id === ctx.botInfo.id)) {
-            await ctx.replyWithHTML("🚀 <b>Olá!</b>\n\nPreciso que me promova a <b>Administrador</b> com permissão de <b>Fixar Mensagens e Convidar Usuários</b> para funcionar!").catch(() => {});
+    try {
+        if (ctx.message.new_chat_members.some(m => m.id === ctx.botInfo.id)) {
+            await ctx.replyWithHTML("🚀 <b>Olá!</b>\n\nPreciso que me promova a <b>Administrador</b> com permissão de <b>Fixar Mensagens e Convidar Usuários</b> para funcionar!").catch(() => {});
             
             const linkInicial = ctx.chat.username ? `https://t.me/${ctx.chat.username}` : 'AGUARDANDO_ADMIN';
 
-            const { error } = await supabase.from('groups').upsert({
-                telegram_chat_id: ctx.chat.id.toString(), 
+            const { error } = await supabase.from('groups').upsert({
+                telegram_chat_id: ctx.chat.id.toString(), 
                 name: ctx.chat.title, 
                 link: linkInicial, 
                 status: 'pending',
-                user_id: ctx.from.id.toString() // 🔥 O ID do usuário agora é salvo aqui!
-            });
+                user_id: ctx.from.id.toString()
+            });
             
-            if (!error) {
-                // O bot vai TENTAR mandar no privado da pessoa primeiro
-try {
-    await ctx.telegram.sendMessage(
-        ctx.from.id, 
-        `✅ O grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`, 
-        { parse_mode: 'HTML' }
-    );
-} catch (erro) {
-    // SE DER ERRO (ex: ela nunca deu /start no bot), ele desiste do PV e manda no Grupo
-    await ctx.replyWithHTML(`✅ <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a>, o grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`).catch(() => null);
-}
-            }
-        }
-    } catch (e) { console.error("❌ [ERRO] Falha geral ao detetar novo membro:", e); }
+            if (!error) {
+                try {
+                    await ctx.telegram.sendMessage(
+                        ctx.from.id, 
+                        `✅ O grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`, 
+                        { parse_mode: 'HTML' }
+                    );
+                } catch (erro) {
+                    await ctx.replyWithHTML(`✅ <a href="tg://user?id=${ctx.from.id}">${ctx.from.first_name}</a>, o grupo <b>${ctx.chat.title}</b> foi registrado e enviado para aprovação no site!`).catch(() => null);
+                }
+            }
+        }
+    } catch (e) { console.error("❌ [ERRO] Falha geral ao detetar novo membro:", e); }
 });
 
 // ==========================================
