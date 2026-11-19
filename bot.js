@@ -54,6 +54,49 @@ const renomeando = new Map();
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // ==========================================
+// 📦 BUSCA PAGINADA (PUXA TODOS OS GRUPOS SEM LIMITE DE 1.000)
+// ==========================================
+async function buscarTodosOsGrupos(statusList = ['approved', 'removed']) {
+    let todos = [];
+    let inicio = 0;
+    const tamanhoPagina = 1000;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('groups')
+            .select('*')
+            .in('status', statusList)
+            .range(inicio, inicio + tamanhoPagina - 1);
+
+        if (error) {
+            console.error('❌ [ERRO] Falha ao buscar grupos paginados:', error.message);
+            break;
+        }
+
+        if (!data || data.length === 0) break;
+
+        todos = todos.concat(data);
+
+        if (data.length < tamanhoPagina) break;
+        inicio += tamanhoPagina;
+    }
+
+    return todos;
+}
+
+// ==========================================
+// 🎲 SORTEIO JUSTO (FISHER-YATES)
+// ==========================================
+function sortearItens(lista, quantidade) {
+    const copia = [...lista];
+    for (let i = copia.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [copia[i], copia[j]] = [copia[j], copia[i]];
+    }
+    return copia.slice(0, quantidade);
+}
+
+// ==========================================
 // 🧹 VARREDOR DE IMPULSOS EXPIRADOS (A cada hora)
 // ==========================================
 async function limparImpulsosExpirados() {
@@ -129,13 +172,10 @@ async function atualizarContagemMembros() {
     console.log('👥 [SISTEMA] Iniciando atualização da contagem de membros e links dos grupos...');
 
     try {
-        const { data: grupos, error } = await supabase
-            .from('groups')
-            .select('id, telegram_chat_id, name, user_id')
-            .in('status', ['approved', 'removed']);
+        const grupos = await buscarTodosOsGrupos(['approved', 'removed']);
 
-        if (error || !grupos) {
-            console.error('❌ [ERRO] Falha ao buscar grupos para atualizar:', error?.message);
+        if (!grupos || grupos.length === 0) {
+            console.error('❌ [ERRO] Falha ao buscar grupos para atualizar.');
             return;
         }
 
@@ -257,9 +297,9 @@ bot.action('meus_grupos', async (ctx) => {
     }
     
     const botoesGrupos = meusGrupos.map(g => {
-    const statusIcon = g.status === 'approved' ? '✅' : g.status === 'pending' ? '⏳' : g.status === 'removed' ? '⚠️' : '❌';
-    return [{ text: `${statusIcon} ${g.name}`, callback_data: `manage_${g.id}` }];
-});
+        const statusIcon = g.status === 'approved' ? '✅' : g.status === 'pending' ? '⏳' : g.status === 'removed' ? '⚠️' : '❌';
+        return [{ text: `${statusIcon} ${g.name}`, callback_data: `manage_${g.id}` }];
+    });
     
     botoesGrupos.push([{ text: '⬅️ Voltar ao Menu', callback_data: 'menu_principal' }]);
     
@@ -443,7 +483,6 @@ bot.on('my_chat_member', async (ctx) => {
 // ==========================================
 // 🔞 BOTÃO FIXO NO TOPO ABSOLUTO (PRIVACY)
 // ==========================================
-// Coloque o link do seu Privacy abaixo. As frases vão alternar a cada envio!
 const CONFIG_PRIVACY = {
     url: 'https://privacy.com.br/profile/lanairezende',
     frases: [
@@ -501,28 +540,32 @@ async function rodarDivulgacao(botAtual, botIndex) {
     try {
         console.log(`🔄 [SISTEMA] Iniciando rotina de postagem para o Bot ${botIndex + 1}...`);
         
-        const { data: todosGrupos, error: errTop } = await supabase
-            .from('groups')
-            .select('*')
-            .in('status', ['approved', 'removed']);
+        // Busca TODOS os grupos do banco sem o corte de 1.000 linhas
+        const todosGrupos = await buscarTodosOsGrupos(['approved', 'removed']);
 
-        if (errTop || !todosGrupos || todosGrupos.length === 0) {
+        if (!todosGrupos || todosGrupos.length === 0) {
             console.log(`⚠️ [INFO] Bot ${botIndex + 1}: Nenhum grupo encontrado.`);
             emExecucao[botIndex] = false;
             return;
         }
 
+        // Separa apenas os aprovados para montagem dos botões
         const gruposParaDivulgar = todosGrupos.filter(g => g.status === 'approved');
 
+        // Prioriza boost_tier ativo antes de verificar plan
         const getPeso = (grupo) => {
-            const plano = (grupo.plan || grupo.boost_tier || '').toLowerCase();
-            if (['diamante', 'diamond'].includes(plano)) return 4;
-            if (['ouro', 'gold', 'vip', 'premium'].includes(plano)) return 3;
-            if (['prata', 'silver'].includes(plano)) return 2;
-            if (['bronze'].includes(plano)) return 1;
+            const boost = (grupo.boost_tier || '').toLowerCase();
+            const plan = (grupo.plan || '').toLowerCase();
+            const planoAtivo = (boost && boost !== 'none') ? boost : plan;
+
+            if (['diamante', 'diamond'].includes(planoAtivo)) return 4;
+            if (['ouro', 'gold', 'vip', 'premium'].includes(planoAtivo)) return 3;
+            if (['prata', 'silver'].includes(planoAtivo)) return 2;
+            if (['bronze'].includes(planoAtivo)) return 1;
             return 0; 
         };
 
+        // Mantido limpo sem restaurar os emojis
         const getEmoji = (peso) => ['‍', '‍', '‍', '‍', '‍'][peso] || '‍';
 
         const alvosOrdenados = gruposParaDivulgar
@@ -532,37 +575,31 @@ async function rodarDivulgacao(botAtual, botIndex) {
         const vipLinks = alvosOrdenados.filter(g => getPeso(g) > 0);
         const freeLinks = alvosOrdenados.filter(g => getPeso(g) === 0);
 
-        vipLinks.sort((a, b) => {
-            const diffPeso = getPeso(b) - getPeso(a);
-            if (diffPeso !== 0) return diffPeso;
-            return Math.random() - 0.5;
-        });
+        console.log(`📊 [BOT ${botIndex + 1}] Total no banco: ${todosGrupos.length} | Aprovados: ${gruposParaDivulgar.length} | VIPs ativos: ${vipLinks.length}`);
 
         freeLinks.sort(() => Math.random() - 0.5);
+
+        // Prioriza enviar primeiro nos grupos VIP para garantir entrega imediata
+        const filaDeEnvio = [...todosGrupos].sort((a, b) => getPeso(b) - getPeso(a));
 
         const botUsername = botAtual.botInfo ? botAtual.botInfo.username : 'divulga_parceiros_OFC_bot';
         const textoMensagem = `💯 <b>Grupos do Telegram</b>\n\n✅ Entre em nosso site e aumente seu alcance: https://grupolink.site/\n\n🔥 <b>Adicione nossos bots no seu canal ou grupo:</b>\n🤖 @divulga_parceiros_OFC_bot\n🤖 @divulga_grupos_bot\n🤖 @divulgacao_de_links_bot`;
         
         let enviosComSucesso = 0;
-        let vIndex = 0;
         let fIndex = 0;
-        // Começa em uma frase aleatória e vai alternando uma por uma sem repetir na sequência
         let privacyIndex = Math.floor(Math.random() * CONFIG_PRIVACY.frases.length);
         const TOTAL_GRUPOS_POR_LISTA = 20; 
         const MAX_VIPS_POR_LISTA = 10;
 
-        for (let i = 0; i < todosGrupos.length; i++) {
-            const target = todosGrupos[i];
+        for (let i = 0; i < filaDeEnvio.length; i++) {
+            const target = filaDeEnvio[i];
 
+            // Sorteia 10 grupos aleatórios dentre TODOS os VIPs ativos a cada mensagem disparada
             let blocoVips = [];
             if (vipLinks.length > 0) {
                 const qtdVipsNaLista = Math.min(MAX_VIPS_POR_LISTA, vipLinks.length);
-                for (let j = 0; j < qtdVipsNaLista; j++) {
-                    blocoVips.push(vipLinks[(vIndex + j) % vipLinks.length]);
-                }
-                if (vipLinks.length > MAX_VIPS_POR_LISTA) {
-                    vIndex = (vIndex + 1) % vipLinks.length;
-                }
+                blocoVips = sortearItens(vipLinks, qtdVipsNaLista)
+                    .sort((a, b) => getPeso(b) - getPeso(a));
             }
 
             let blocoFree = [];
@@ -577,7 +614,6 @@ async function rodarDivulgacao(botAtual, botIndex) {
             let blocoAtual = [...blocoVips, ...blocoFree];
             const linksEmbaralhados = [...MEUS_LINKS_PERSONALIZADOS].sort(() => 0.5 - Math.random());
             
-            // Seleciona a próxima frase do Privacy e avança o contador
             const frasePrivacyAtual = CONFIG_PRIVACY.frases[privacyIndex % CONFIG_PRIVACY.frases.length];
             privacyIndex++;
 
@@ -601,10 +637,10 @@ async function rodarDivulgacao(botAtual, botIndex) {
             });
             
             let tecladoBotoes = [
-                botaoPrivacyTopo,      // 1º: Sempre no topo absoluto acima de tudo
-                ...topoPersonalizado,  // 2º: Seus 2 links sorteados
-                ...botoesGrupos,       // 3º: Grupos VIPs e Free
-                ...rodapePersonalizado // 4º: Seus 2 links no rodapé
+                botaoPrivacyTopo,
+                ...topoPersonalizado,
+                ...botoesGrupos,
+                ...rodapePersonalizado
             ];
 
             tecladoBotoes.push([
